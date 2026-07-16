@@ -2,7 +2,7 @@ name: cliproxyapi-pro
 
 services:
   cli-proxy-api:
-    image: eceasy/cli-proxy-api@sha256:e0f171925a193f81baf59d1fd6eb9e6ef88570a571614c3fa4722705a6db6daf
+    image: cliproxyapi-pro/cli-proxy-api:55dbffc7
     pull_policy: never
     container_name: cli-proxy-api
     restart: unless-stopped
@@ -28,7 +28,7 @@ services:
       - ./gateway/logs:/CLIProxyAPI/logs
 
   cpa-manager-plus:
-    image: seakee/cpa-manager-plus@sha256:5897b299887dbe7a8fa2e23850fe64949e5a60a94ba5e5aebd3acd810e710351
+    image: cliproxyapi-pro/cpa-manager-plus:c9b96b3b
     pull_policy: never
     container_name: cpa-manager-plus
     restart: unless-stopped
