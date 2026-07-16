@@ -46,6 +46,10 @@ services:
       USAGE_DATA_DIR: /data
       USAGE_DB_PATH: /data/usage.sqlite
       CPA_MANAGER_DATA_KEY_PATH: /data/data.key
+      CPA_MANAGER_BACKUP_ENABLED: "true"
+      CPA_MANAGER_BACKUP_DIR: /data/backups
+      CPA_MANAGER_BACKUP_INTERVAL_HOURS: "24"
+      CPA_MANAGER_BACKUP_RETENTION: "14"
       CPA_MANAGER_ADMIN_KEY_FILE: /run/secrets/cpamp_admin_key
       CPA_UPSTREAM_URL: http://cli-proxy-api:8317
       CPA_MANAGEMENT_KEY_FILE: /run/secrets/cpa_management_key
