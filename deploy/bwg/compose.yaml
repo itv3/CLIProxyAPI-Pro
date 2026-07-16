@@ -1,0 +1,75 @@
+name: cliproxyapi-pro
+
+services:
+  cli-proxy-api:
+    image: eceasy/cli-proxy-api@sha256:e0f171925a193f81baf59d1fd6eb9e6ef88570a571614c3fa4722705a6db6daf
+    pull_policy: never
+    container_name: cli-proxy-api
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      DEPLOY: ""
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:3001:8317"
+      - "10.29.12.101:8317:8317"
+      - "0.0.0.0:8085:8085"
+      - "0.0.0.0:1455:1455"
+      - "0.0.0.0:54545:54545"
+      - "0.0.0.0:51121:51121"
+      - "0.0.0.0:11451:11451"
+    volumes:
+      - ./gateway/config.yaml:/CLIProxyAPI/config.yaml
+      - ./gateway/auths:/root/.cli-proxy-api
+      - ./gateway/logs:/CLIProxyAPI/logs
+
+  cpa-manager-plus:
+    image: seakee/cpa-manager-plus@sha256:5897b299887dbe7a8fa2e23850fe64949e5a60a94ba5e5aebd3acd810e710351
+    pull_policy: never
+    container_name: cpa-manager-plus
+    restart: unless-stopped
+    depends_on:
+      - cli-proxy-api
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ports:
+      - "10.29.12.101:18317:18317"
+    environment:
+      HTTP_ADDR: "0.0.0.0:18317"
+      USAGE_DATA_DIR: /data
+      USAGE_DB_PATH: /data/usage.sqlite
+      CPA_MANAGER_DATA_KEY_PATH: /data/data.key
+      CPA_MANAGER_ADMIN_KEY_FILE: /run/secrets/cpamp_admin_key
+      CPA_UPSTREAM_URL: http://cli-proxy-api:8317
+      CPA_MANAGEMENT_KEY_FILE: /run/secrets/cpa_management_key
+      USAGE_COLLECTOR_MODE: auto
+      USAGE_RESP_QUEUE: usage
+      USAGE_RESP_POP_SIDE: right
+      USAGE_BATCH_SIZE: "100"
+      USAGE_POLL_INTERVAL_MS: "500"
+      USAGE_QUERY_LIMIT: "50000"
+      USAGE_CORS_ORIGINS: http://10.29.12.101:18317
+    volumes:
+      - ./manager/data:/data
+    secrets:
+      - cpamp_admin_key
+      - cpa_management_key
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:18317/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+secrets:
+  cpamp_admin_key:
+    file: ./manager/secrets/cpamp-admin-key
+  cpa_management_key:
+    file: ./manager/secrets/cpa-management-key

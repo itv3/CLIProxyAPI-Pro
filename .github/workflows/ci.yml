@@ -1,0 +1,184 @@
+name: Pro CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gateway:
+    name: Gateway
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码和子模块
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: 配置 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: components/cliproxyapi/go.mod
+          cache-dependency-path: components/cliproxyapi/go.sum
+
+      - name: 刷新模型目录
+        working-directory: components/cliproxyapi
+        run: bash .github/scripts/refresh-model-catalogs.sh
+
+      - name: 执行测试
+        working-directory: components/cliproxyapi
+        run: go test ./...
+
+      - name: 验证构建
+        working-directory: components/cliproxyapi
+        run: go build -o "$RUNNER_TEMP/cli-proxy-api" ./cmd/server
+
+  manager-web:
+    name: Manager Web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: components/cpa-manager-plus
+    steps:
+      - name: 检出代码和子模块
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: 配置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: components/cpa-manager-plus/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 类型检查
+        run: npm run type-check
+
+      - name: 代码检查
+        run: npm run lint
+
+      - name: 执行测试
+        run: npm run test
+
+      - name: 构建管理面板
+        run: npm --workspace apps/web run build:bundle
+        env:
+          VERSION: ci
+
+      - name: 检查演示环境隔离
+        run: npm run check:demo-isolation
+
+  manager-server:
+    name: Manager Server
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码和子模块
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: 配置 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache-dependency-path: components/cpa-manager-plus/apps/manager-server/go.sum
+
+      - name: 执行测试
+        working-directory: components/cpa-manager-plus/apps/manager-server
+        run: go test ./...
+
+  manager-sqlite-windows:
+    name: Manager SQLite（Windows）
+    runs-on: windows-latest
+    steps:
+      - name: 检出代码和子模块
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: 配置 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache-dependency-path: components/cpa-manager-plus/apps/manager-server/go.sum
+
+      - name: 验证 SQLite 仓储
+        working-directory: components/cpa-manager-plus/apps/manager-server
+        run: go test ./internal/repository/sqlite
+
+  native-control:
+    name: Native Control（${{ matrix.os }}）
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+          - ubuntu-latest
+          - windows-latest
+    defaults:
+      run:
+        working-directory: components/cpa-manager-plus
+    steps:
+      - name: 检出代码和子模块
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: 配置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: components/cpa-manager-plus/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 执行原生控制脚本测试
+        run: npx vitest run tests/nativeControlScripts.test.mjs
+
+  docker-build:
+    name: Docker（${{ matrix.component }}）
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: gateway
+            context: components/cliproxyapi
+            file: components/cliproxyapi/Dockerfile
+          - component: manager
+            context: components/cpa-manager-plus
+            file: components/cpa-manager-plus/Dockerfile.manager-server
+    steps:
+      - name: 检出代码和子模块
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: 配置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 验证镜像构建
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: linux/amd64
+          push: false
+          build-args: |
+            VERSION=ci

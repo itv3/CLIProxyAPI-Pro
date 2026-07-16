@@ -1,0 +1,6 @@
+[submodule "components/cliproxyapi"]
+	path = components/cliproxyapi
+	url = https://github.com/itv3/CLIProxyAPI.git
+[submodule "components/cpa-manager-plus"]
+	path = components/cpa-manager-plus
+	url = https://github.com/itv3/CPA-Manager-Plus.git
