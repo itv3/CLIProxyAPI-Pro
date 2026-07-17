@@ -29,7 +29,7 @@ services:
       - ./gateway/plugins:/CLIProxyAPI/plugins
 
   cpa-manager-plus:
-    image: cliproxyapi-pro/cpa-manager-plus:d9b2ef7d
+    image: cliproxyapi-pro/cpa-manager-plus:fac034c8
     pull_policy: never
     container_name: cpa-manager-plus
     restart: unless-stopped
