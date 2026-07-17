@@ -2,7 +2,7 @@ name: cliproxyapi-pro
 
 services:
   cli-proxy-api:
-    image: cliproxyapi-pro/cli-proxy-api:55dbffc7
+    image: cliproxyapi-pro/cli-proxy-api:fb818d34
     pull_policy: never
     container_name: cli-proxy-api
     restart: unless-stopped
@@ -26,9 +26,10 @@ services:
       - ./gateway/config.yaml:/CLIProxyAPI/config.yaml
       - ./gateway/auths:/root/.cli-proxy-api
       - ./gateway/logs:/CLIProxyAPI/logs
+      - ./gateway/plugins:/CLIProxyAPI/plugins
 
   cpa-manager-plus:
-    image: cliproxyapi-pro/cpa-manager-plus:c9b96b3b
+    image: cliproxyapi-pro/cpa-manager-plus:d9b2ef7d
     pull_policy: never
     container_name: cpa-manager-plus
     restart: unless-stopped
