@@ -45,306 +45,232 @@ CLIProxyAPI Pro 对外是一个产品，内部保留两个独立组件：
 4. 不把两个项目合并成一个 Go 工程、二进制或进程。
 5. Pro 功能尽量通过新增模块和少量接入点实现，方便继续合并上游更新。
 
+### 本地参考源码
+
+当前开发工作区在 `.references/sub2apiplus` 保存 [itv3/sub2apiplus](https://github.com/itv3/sub2apiplus) 的只读浅克隆，并将 [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) 配置为其上游参考地址。该目录用于页面布局、交互流程、协议探测和兼容逻辑的阅读、检索与对比，方便开发人员和 AI 在同一工作区内分析参考实现。
+
+`.references/` 是本机开发辅助目录，不是 CLIProxyAPI Pro 的正式组件、Git 子模块、构建依赖、运行依赖或发布内容。主仓库通过 `.git/info/exclude` 的 `/.references/` 规则在本地忽略整个目录，其中的说明文件、独立 Git 仓库和源码均不进入 CLIProxyAPI Pro 提交，也不参与 CI、构建、打包或部署。
+
+参考源码只能读取，禁止在其中实现 Pro 功能、安装依赖、执行构建或产生提交。需要更新时只能在参考仓库中执行 `git pull --ff-only`。所有正式实现必须写入 `components/cpa-manager-plus` 或 `components/cliproxyapi`。
+
 ## 3. 功能需求
 
 ### 3.1 统一账号管理
 
-#### 目标和范围
+#### 主要解决的问题
 
-提供一个统一账号页面，集中完成账号的查看、添加、编辑、启停、删除、测试、模型配置和用量查看。
+CLIProxyAPI 原生按 API 配置、OAuth 认证文件和插件认证分别管理凭证，CPA-Manager-Plus 原有页面也按 Provider、认证文件和 OAuth 流程拆分。Pro 统一账号管理在不替换 Gateway 凭证与调度机制的前提下，为这些底层来源增加统一、稳定的管理视图，主要解决：
 
-统一账号是 CPA-Manager-Plus 对 CLIProxyAPI 配置项和认证文件的归一化管理视图，不改变 CLIProxyAPI 现有底层结构。不引入分组订阅、倍率、余额或商业计费。sub2apiplus 只作为页面布局、交互流程和协议处理的参考；Pro 追求核心体验等效，不承诺复制其商业调度和计费语义。
+1. 同一部署的账号分散在多个页面，管理员需要先理解 Gateway 内部 Provider 和配置结构才能完成日常操作。
+2. OAuth、API Key、Vertex 和插件账号的数据结构、状态字段及操作接口不同，前端难以统一展示和批量管理。
+3. `auth_index` 会随 Key、Base URL、文件路径或协议变化，直接使用它作为账号身份会导致编辑迁移后账号、历史用量和操作记录断裂。
+4. 添加、协议探测、模型配置、测试和启用涉及多次 Management API 调用，中途失败可能产生半完成配置或短暂进入正常调度。
+5. 模型白名单、映射、健康状态、官方配额和本地用量来自不同接口，缺少以账号为中心的一致结果。
+6. 存量配置、绑定漂移、批量操作和失败恢复缺少持久化状态，服务重启后难以继续处理。
 
-#### 平台和认证方式
+当前统一入口覆盖以下账号类型：
 
-| 平台 | Pro 首期添加方式 | CLIProxyAPI 底层映射 |
+| 平台 | 添加方式 | Gateway 底层来源 |
 |---|---|---|
-| Anthropic | OAuth、API | OAuth 认证文件、`claude-api-key` |
-| OpenAI | OAuth、API | OAuth 认证文件、`codex-api-key` 或 `openai-compatibility` |
-| Gemini | OAuth、API、Vertex | `gemini-cli` 插件、`gemini-api-key`、Vertex Service Account |
+| Anthropic | OAuth、API Key | Claude OAuth 认证文件、`claude-api-key` |
+| OpenAI | OAuth、API Key | Codex OAuth 认证文件、`codex-api-key`、`openai-compatibility` |
+| Gemini | OAuth、API Key、Vertex | Gemini 插件认证、`gemini-api-key`、Vertex Service Account |
 | Antigravity | OAuth | Antigravity OAuth 认证文件 |
 | Grok / xAI | OAuth | xAI OAuth 认证文件 |
 
-中转站按上游协议归类，不按模型名称归类：
+OpenAI 格式的中转站统一从 OpenAI API Key 入口添加，由协议探测决定使用 Responses 或 Chat Completions；Gemini API Key 入口只处理 Gemini 原生协议。
 
-- OpenAI 格式的 Grok、Gemini 或其他模型中转站，从 OpenAI API 入口添加。
-- Gemini API 入口只用于 Gemini 原生协议。
-- Grok / xAI 和 Antigravity 的普通添加页面不提供 API 类型。
-- 已有 `xai-api-key`、`interactions-api-key` 等配置仅作为高级兼容能力保留。
+#### 实现状态与边界
 
-#### 统一添加流程
+统一账号管理已由 CPA-Manager-Plus 和 CLIProxyAPI 两个 fork 共同实现。CPA-Manager-Plus 保存统一账号 ID、绑定历史、操作状态和页面数据，CLIProxyAPI 继续负责凭证持久化、账号调度和真实模型请求。
+
+Manager 不直接读取或修改 Gateway 宿主机的配置文件、认证目录或运行数据库，所有底层操作均通过 CLIProxyAPI Management API 完成。原 `/ai-providers`、`/auth-files` 和 `/oauth` 路由继续保留为高级管理入口，统一账号页使用 `/accounts`。
 
 ```text
-选择平台
-  -> 选择认证方式
-  -> 填写或完成授权
-  -> 探测账号能力
-  -> 同步并选择允许模型
-  -> 配置模型别名和映射
-  -> 连通性测试
-  -> 保存
+浏览器 /accounts
+  -> CPA-Manager-Plus /v0/pro/accounts/*
+     -> ProAccountService / Lifecycle / Usage / Probe
+        -> ProAccountGateway Client
+           -> CLIProxyAPI /v0/management/*
+              -> 配置、认证文件、Auth Registry 和生产 Executor
 ```
 
-页面不暴露 Codex、Interactions、OpenAI Compatibility 等内部 Provider 名称。OAuth 流程保存认证文件，API 和 Vertex 流程写入对应配置。
+#### Manager 端实施逻辑
 
-允许模型必须在添加账号时即可配置，保存后也可重新编辑。同步失败时允许手工添加模型，但仍需通过连通性测试。
+1. `ProAccountService` 从 Gateway 的认证文件和 API 配置快照中生成归一化账号，再通过 `ResolveBinding` 同步到 Manager SQLite。
+2. 每个账号由 Manager 生成稳定 UUID。当前 `auth_index`、来源定位和历史变更记录在绑定表中，Key、Base URL、文件路径或认证类型变化时不更换账号 UUID。
+3. 无法唯一匹配的绑定漂移写入待确认记录，由管理员重绑；同步过程使用发现键保证幂等，不根据邮箱、指纹或 Key 摘要自动合并账号。
+4. 列表接口使用游标分页，并在 Manager 侧统一完成搜索、平台、认证方式、启用状态和健康状态筛选。
+5. API Key 创建先由 `ProAccountProbeService` 使用候选凭证探测协议和模型，再创建停用草稿、写入模型规则、执行连通性测试，成功后启用。OpenAI 优先选择 Responses，明确不支持时才回退 Chat Completions。
+6. OAuth 和 Vertex 创建先在 Gateway 保存不可调度草稿，再由添加向导补充模型规则并完成测试。取消、超时或失败时由生命周期服务执行清理或补偿。
+7. 编辑、启停、删除、协议迁移、重新授权和 Token 刷新统一由 `ProAccountLifecycleService` 编排；写操作携带资源版本、`operation_id` 和幂等键，避免并发覆盖及重复执行。
+8. `pro_account_drafts` 保存跨多个 Management API 调用的状态。Manager 启动后的恢复 Worker 会扫描未完成操作，继续执行或进入补偿流程。
+9. 账号管理模型目录由项目内置目录、上游模型列表和用户手工输入合并，用于账号配置与连通性测试，不等同于 3.3 定义的客户端模型列表。`allowed_models` 在映射前校验客户端模型名，`model_mapping` 再解析为上游模型；规则写入后必须从 Gateway 回读确认。
+10. `ProAccountUsageService` 按账号全部历史绑定聚合 `usage_events`，并通过平台 Adapter 补充官方配额。前端只在用户主动刷新时请求官方配额，列表自动刷新使用被动快照和本地统计。
+11. 批量启停、测试、删除、绑定重审、OpenAI reset credits 和数据库备份均在 Manager 侧实现，不改变 Gateway 的普通模型请求入口。
 
-#### 账号管理首页
+#### SQLite 数据
 
-首页使用单个高密度表格展示所有平台账号，不使用卡片列表。表格至少包含：
-
-| 列 | 内容 |
+| 表 | 用途 |
 |---|---|
-| 账号 | 名称、邮箱或脱敏凭证摘要 |
-| 平台/类型 | 平台、OAuth/API/Vertex、协议或账号等级 |
-| 状态 | 启用、健康、错误或需要重新授权 |
-| 允许模型 | 模型数量和部分模型标签 |
-| 用量窗口 | 官方配额进度和本地用量 |
-| 最近活动 | 最近使用、最近测试和最近错误 |
-| 操作 | 编辑、测试、启停、删除和更多操作 |
+| `pro_accounts` | 保存稳定账号 UUID、平台、认证方式、状态、模型规则和资源版本 |
+| `pro_account_bindings` | 保存账号与 `auth_index`、来源定位之间的当前及历史有效期 |
+| `pro_account_binding_reviews` | 保存无法自动确认的绑定漂移及候选账号 |
+| `pro_account_drafts` | 保存创建、编辑、测试、迁移和补偿操作状态，不保存凭证明文 |
+| `usage_events` | 复用现有原始用量事件，按事件时间与绑定有效期归属到统一账号 |
 
-页面顶部提供账号搜索，平台、认证类型、启用状态和健康状态筛选，以及手动刷新、自动刷新、添加账号和批量启停/测试/删除。
+上述表由 `internal/repository/sqlite/migrate.go` 统一创建和升级。SQLite 数据目录需要持久化；自动备份、恢复和命令行备份逻辑位于 `internal/repository/sqlite/backup.go`、`internal/worker/database_backup.go` 和 `internal/command/databasebackup/`。
 
-不照搬 sub2apiplus 的容量、分组、隐私、倍率和商业计费字段。
+#### BFF 接口分组
 
-#### 底层账号映射
+`/v0/pro/*` 由 Manager 本地鉴权和处理，未知路径直接返回 `404`，不会转发给 Gateway。
 
-每个持久化认证文件或 API 配置项在统一页面中显示为一个账号。插件生成的运行时虚拟认证不单独形成可编辑账号。
-
-归一化账号至少保留：平台、认证方式、底层来源类型、稳定账号 ID、账号名称或邮箱、启用状态、健康状态、可用模型和可选过期时间。编辑、启停和删除操作根据底层来源分发到现有 Management API。
-
-sub2apiplus 使用数据库 `account.id` 关联配额、用量和操作。Pro 在 CPA-Manager-Plus SQLite 中新增 `pro_accounts`，由 Manager 生成 UUID 作为统一账号的稳定主键；不要求把该 UUID 写入 CLIProxyAPI 的现有配置格式。另建 `pro_account_bindings` 保存一个账号与底层凭证的当前及历史关联：
-
-- `pro_accounts` 保存平台、认证方式、名称、状态、模型规则、时间和用量摘要。
-- `pro_account_bindings` 保存来源类型、当前和历史 `auth_index`、来源定位信息、绑定有效期、绑定状态及首次/最近发现时间。
-- 首期字段至少包括：`id`、`platform`、`auth_type`、`source_type`、`name`、`email`、`enabled`、`health_status`、`last_error`、`allowed_models`、`model_mapping`、`last_used_at`、`last_tested_at`、`expires_at`、`created_at` 和 `updated_at`；绑定表至少包括 `pro_account_id`、`auth_index`、`source_locator`、`source_fingerprint`、`binding_status`、`is_current`、`valid_from`、`valid_to` 和时间字段。
-- 另建 `pro_account_drafts` 保存跨 Management API 操作的持久化状态机，至少包括 `operation_id`、幂等键、操作类型、关联账号、当前状态、状态版本、重试次数、清理截止时间、补偿动作、错误摘要和时间字段；草稿清理不能只依赖前端内存状态。
-- `auth_index` 只作为 Gateway 运行时凭证标识，不假设它永久稳定：OAuth 文件通常由认证类型和绝对路径生成，API 凭证会包含 Base URL 和 Key，因此更换 Key 或地址可能改变它。
-- 通过统一页面编辑账号时，先更新绑定并保留旧标识，历史用量按该账号的全部绑定标识聚合；账号 UUID 不变。外部直接修改配置导致无法唯一匹配时不得猜测合并，应标记为待确认。
-- `source_fingerprint`、`identity_hash`、邮箱、Key 片段或 Hash 只能作为非唯一的匹配提示和人工重绑依据，不能作为账号主键，也不能据此自动合并两个账号。
-- 认证目录、容器挂载点、文件名、Key 或 Base URL 变化可能导致绑定漂移。检测到同一部署中大量绑定同时失效时，应进入批量漂移确认和批量重绑流程，不要求管理员逐账号处理；文件路径漂移和 API 凭证漂移必须分别识别。
-- 存量同步必须幂等：同一轮快照使用 `source_type + source_locator + auth_index` 形成发现键；精确命中当前绑定时更新快照，首次导入且无候选时创建新 UUID，存在历史定位、指纹或身份候选但无法唯一确认时进入 `pending_confirmation`，不得因重复同步创建多个账号。`ResolveBinding` 返回精确命中、新建、待确认和冲突状态，并保留候选及原因码。
-- 历史用量必须按事件时间归属：使用 `usage_events` 的事件时间与绑定的 `[valid_from, valid_to)` 做时间连接，不能把同一 `auth_index` 在所有时期的事件无条件归给当前账号。绑定变更、路径重用或人工重绑后应触发 Pro 账号汇总回填；现有预聚合表不能直接替代该时间归属。原始事件已过保留期时保留归属质量标记，不猜测补齐。
-- 新建 `openai-compatibility` 账号时每个 Provider 默认只保存一个 API Key。存量多 Key Provider 在统一页面按 Key 展示为多条账号，但底层仍保留一个共享 Provider，不物理拆分；模型、Header、Base URL 等 Provider 级配置明确标记为共享。
-
-Manager 保存稳定 UUID、期望启用状态、模型规则、绑定历史和操作状态；Gateway 返回实际启用状态、认证状态、冷却状态和运行错误；前端状态由 Manager 统一归一化。Manager 数据库是统一账号 ID 和绑定历史的持久化来源，部署备份必须包含该 SQLite 数据库。SQLite 必须纳入版本化迁移、升级回滚、定期备份、恢复演练和数据目录持久化要求。CLIProxyAPI 仅继续提供凭证执行、调度和 Management API，不承担 Pro 账号表。
-
-#### OpenAI API 协议探测
-
-用户只需填写 Base URL 和 API Key。系统优先探测 `/v1/responses`：
-
-- Responses 可用时，使用 `codex-api-key`。
-- Responses 不可用时，测试 `/v1/chat/completions`，成功后使用 `openai-compatibility`。
-- 两个协议都支持时只使用 Responses，不创建两个账号或两份并行配置。
-- 两个协议都不可用时不保存。
-
-失败时区分认证、地址、网络、协议和上游服务错误。默认自动选择协议；高级选项可强制 Responses 或 Chat Completions。
-
-新 API Key 的处理顺序为：Manager 仅在内存中接收 Base URL 和 Key -> 通过 `ProbeCandidate` 使用临时凭证和候选模型规则获取模型/执行协议探测 -> 确定底层类型 -> 创建停用或不可调度配置 -> 获取运行时 `auth_index` -> 通过 `/api-call` 执行最终连通性测试 -> 启用配置。预探测阶段不依赖 `auth_index`，白名单使用尚未持久化的草稿规则在内存中校验；最终测试才使用已持久化草稿的 `auth_index`。探测失败时不写入可调度配置；用户明确选择保留时，只保存为停用账号。`ProbeCandidate` 可由 Manager 内存探测实现，或使用不持久化、不进入调度且不记录凭证明文的窄 Gateway 探测接口。
-
-探测请求结构参考 sub2apiplus `backend/internal/service/openai_apikey_responses_probe.go`（创建交互见 `frontend/src/components/account/CreateAccountModal.vue`），但错误判定采用以下更严格的 Pro 三态规则，不原样复制参考项目对其他非 `2xx` 响应“保守按支持处理”的行为：
-
-1. 使用带必选 function tool 的非流式 Responses 请求，确认端点和工具调用都可用。
-2. 探测模型优先使用已同步模型映射中的具体上游模型；没有列表时使用项目默认测试模型。
-3. `404/405` 判定为 Responses 不支持；`2xx` 只有在响应中出现 `function_call` 时才判定可用。
-4. 其他 HTTP 错误只能说明端点存在但本次无法完成能力判断，不得据此判定不支持；网络错误保持未知。探测结果必须区分“明确不支持、支持、未知”。
-5. 只有 Responses 明确不支持时才继续测试 Chat Completions。两个协议都支持时只选择 Responses；Responses 未知时提示重试或允许保存为停用账号，不自动创建错误类型。
-
-编辑存量 OpenAI API 账号时重新探测。如果底层类型发生变化，先在不修改旧配置的情况下完成新凭证预检，再创建停用/不可调度的新配置并执行最终测试，成功后删除旧配置并启用新配置。任一步失败时执行补偿并保留旧配置；`pro_account_id` 保持不变。若某类底层配置暂不支持停用草稿，必须依赖写入前预检和失败补偿，不能把多次 Management API 调用当作数据库原子事务。
-
-#### 添加事务和取消清理
-
-sub2apiplus 在 OAuth 换取凭证后再创建数据库账号；CLIProxyAPI 的 OAuth/插件流程可能会直接保存认证文件。Pro 按以下规则适配：
-
-- OAuth 授权成功后新认证文件必须在首次保存时就是草稿/停用状态，完成模型配置和连通性测试后再启用；不能先保存为可调度账号再由 Manager 补发停用请求。
-- 用户取消、授权超时或保存失败时，删除本次新建的草稿认证文件或配置项。
-- 连通性测试失败时默认不启用；用户可明确选择“保存为停用账号”以保留配置。
-- 添加和迁移流程使用持久化状态机，状态至少包括：`draft_created`、`credential_saved_disabled`、`probed`、`models_configured`、`tested`、`enabled`、`cancelled`、`compensating` 和 `failed`。每次状态转换使用 `operation_id`、幂等键和状态版本，服务重启后可继续清理或补偿。
-- CLIProxyAPI 的 `PostAuthHook` 负责读取明确的草稿意图，写入 `pro_draft=true`，并在首次持久化前设置 `Disabled` 和禁用状态。草稿意图必须与 OAuth Session 关联，不能只依赖授权发起页面的内存或单次 Query 参数；插件 OAuth 在后续状态轮询中完成保存时仍必须恢复同一草稿意图。
-- CLIProxyAPI 的 File、Object、PostgreSQL 和 Git 四种 Token Store 都必须允许带 `pro_draft=true` 的 Disabled 凭证首次持久化。普通 Disabled 凭证在目标不存在时仍保持现有跳过行为，防止已删除认证被状态同步意外重建。
-- 草稿能力是一个运行时接入边界，但可能涉及 Hook 装配、OAuth Session 草稿意图传递和多个 Store 的共享持久化判断；不能将其理解为单一文件补丁。
-
-状态机以 `enabled`、`cancelled` 和清理完成后的 `failed` 为终态，其他状态均允许恢复扫描。`operation_id` 和幂等键必须唯一，状态更新使用版本比较防止并发覆盖；Manager 启动和定时任务扫描超过截止时间的非终态操作，按最后成功步骤继续执行或进入 `compensating`。补偿失败保留可重试记录和人工处理入口，不能静默删除证据。
-
-#### Gemini 实现规则
-
-- OAuth：通过官方 `gemini-cli` 插件授权，自动识别邮箱、GCP 项目和账号等级。Google One 和 Code Assist 是授权后的识别结果，不是添加前的独立入口。
-- API：填写可自定义的 Base URL 和 API Key，底层使用 `gemini-api-key`。
-- Vertex：上传 Google Cloud Service Account JSON，并配置项目和地区。
-
-#### 其他平台实现规则
-
-- Anthropic：OAuth 完成授权并保存认证文件；API 填写 Base URL 和 API Key，底层使用 `claude-api-key`。
-- Antigravity：只提供 OAuth 添加方式。
-- Grok / xAI：只提供 OAuth 添加方式；OpenAI 格式的 Grok 中转站从 OpenAI API 入口添加。
-
-#### 账号模型和用量
-
-所有统一账号都支持：
-
-- 同步项目最新支持模型。
-- 同步上游实际支持模型。
-- 模型白名单。
-- 模型别名和映射。
-- 手工添加模型。
-
-sub2apiplus 使用 `model_mapping` 同时表示白名单和映射：`model -> model` 是白名单，`alias -> upstream` 是映射，空映射表示允许全部。Pro 保留该语义，但适配 CLIProxyAPI 的 `allowed_models` 和 `models` 结构：
-
-1. `allowed_models` 存储客户端可请求的模型名；空或缺失表示允许全部。
-2. `models` 存储客户端别名到上游模型的映射。有映射时，映射的客户端别名自动加入有效白名单。
-3. 请求处理顺序固定为：使用客户端模型名检查白名单，通过后再执行别名映射并请求上游。
-4. 模型列表、账号调度、连通性测试和真实请求使用同一套白名单与映射规则。
-5. 映射源允许精确名称或仅在末尾出现一个 `*`；映射目标不允许通配符，与 sub2apiplus 保持一致。
-6. 插件虚拟认证继承物理账号的白名单和映射，不允许单独编辑。
-
-CLIProxyAPI 已有账号级和 Provider 级 `excluded-models`，可在作用域相同的配置项上复用，但负向黑名单不能替代严格的正向白名单：按已知模型列表计算差集会在同步失败、动态插件模型或上游新增模型时意外放行未知模型；OpenAI Compatibility 的模型、Header 和 Base URL 还可能被同一 Provider 多 Key 共享。因此 Gateway 需要增加最小的账号级运行时白名单接入，至少覆盖 OAuth 认证文件和共享 Provider 下的独立账号。
-
-白名单应接入 Auth/模型 Registry 的统一模型注册和调度路径。构建 Registry 时先生成含别名和前缀的客户端可见模型名，再按 `allowed_models` 过滤；处理请求时先用客户端请求模型检查白名单，通过后再解析为上游模型。模型列表、账号调度和真实请求复用同一判断，不在各 Executor 重复实现。`/v0/management/api-call` 是任意上游 HTTP 工具，不经过模型 Registry；Manager 使用它进行连通性测试或协议探测时，必须自行确认测试模型属于账号有效白名单。现有 `excluded-models` 可作为配置落地优化，但不能改变账号级白名单语义。`allowed_models` 和通用草稿保存能力应尽量以不包含 Pro 业务概念的形式向 CLIProxyAPI 上游提交 PR，fork 补丁作为合并前的过渡实现。
-
-`pro_accounts` 是模型规则的管理端权威来源。保存规则时，Adapter 根据来源类型将规则写入 OAuth 认证文件元数据、独立 API Key 配置或 Gateway 新增的账号级运行时字段；共享 OpenAI Compatibility Provider 的 Base URL、Header 和模型目录仍保持 Provider 级共享，独立 Key 的 `allowed_models` 不得覆盖同 Provider 的其他账号。Gateway 回显当前生效规则和规则版本，Manager 只有在写入、重载和回读一致后才提交本地状态；任一步失败时按草稿状态机补偿并保留旧规则。
-
-模型同步顺序为：上游实际模型列表 -> 项目内置模型目录 -> 用户手工模型。同名模型去重，保留用户已选白名单和自定义映射；上游不支持模型列表时不视为账号错误。
-
-账号只参与允许模型的调度。账号详情用简单窗口显示配额、重置时间、输入/输出/缓存/推理 Token、请求次数、失败次数和官方价格估算成本。
-
-账号总览至少显示：平台和认证方式、名称或邮箱、启用和健康状态、可用模型、配额和 Token 用量、估算成本、最近使用、最近测试和最近错误。
-
-#### 行内用量窗口
-
-用量窗口直接显示在账号表格的每一行，不要求用户先进入详情页。窗口采用紧凑的两层结构：
-
-```text
-5h  [======----] 62%  6d 11h 后重置
-7d  [=---------]  4%  4d 8h 后重置
-
-663 次  111.2M Token  估算 $98.20  查询  刷新
-OpenAI OAuth 支持时：重置次数 2  重置
-```
-
-展示规则：
-
-1. 官方配额可用时，显示窗口名称、使用百分比、进度条和重置倒计时。
-2. 同一账号有多个窗口时紧凑纵向排列，例如 `5h`、`7d` 和模型专项窗口。
-3. 窗口下方显示当前统计周期的请求数、Token 和官方价格估算成本。
-4. 支持按需查询官方配额和刷新本地统计。
-5. 官方数据优先，其次使用响应头被动采样，最后使用 CLIProxyAPI 本地用量统计。
-6. 本地统计不是官方剩余配额，必须明确区分，不得模拟或虚构官方配额。
-7. 无数据时显示“暂无配额数据”，不将未知配额显示为零。
-8. 加载、无数据和错误状态保持稳定尺寸，不引起表格抖动。
-9. 错误仅显示简短摘要，完整信息放在 Tooltip 或详情中。
-10. 截图中的 `A/U` 双成本属于 sub2apiplus 的账号成本和用户计费成本，Pro 不复制该商业计费语义，只显示单一官方价格估算成本。
-11. OpenAI OAuth 在上游明确支持时可显示剩余 reset credits，并允许管理员主动消耗一次 credit 重置官方窗口；该操作必须进行能力检测和二次确认，防止重复点击，不支持或状态未知时不显示为零。
-
-用量页面布局、字段命名、缓存时长和懒加载方式参考 sub2apiplus `GET /admin/accounts/:id/usage?source=passive|active&force=true`、`AccountUsageCell.vue`、`UsageProgressBar.vue`、`AccountTodayStatsCell.vue` 和 `account_usage_service.go`；数据来源、错误语义以及主动/被动查询行为以本节定义的 Pro 统一契约为准，不假设参考项目已在所有平台实现相同语义：
-
-- `passive`：只读已有响应头快照和本地用量，不主动请求上游。
-- `active`：使用账号凭证主动查询官方配额；`force=true` 跳过成功结果缓存。
-- 返回结构统一包含 `source`、`updated_at`、配额窗口、本地统计和可机器识别的错误码。
-- 官方配额成功结果后端缓存 3 分钟，可恢复错误缓存 1 分钟；前端行内数据缓存 5 分钟。
-- 页面自动刷新只刷新账号列表、`passive` 快照和本地统计，不循环主动请求上游配额。
-- 桌面端在用量列可见时加载；移动端使用 `IntersectionObserver` 在行接近视口时懒加载，避免一次请求全部账号。
-
-上述 `passive`、`active` 和 `force` 是 Pro BFF 重新定义的统一契约：参考项目当前并非所有平台都支持统一的被动查询，`force=true` 也并非所有分支都会绕过成功缓存。Pro 后端必须按本节规则归一化，不把平台差异直接暴露给前端。
-
-所有账号类型返回同一响应结构，但不强制所有平台具备官方主动查询能力。仅支持本地统计的账号收到 `active` 请求时不调用不存在的上游接口，返回 `source=local`、本地统计、空官方窗口和机器可识别的 `official_usage_unsupported`；官方状态未知时使用 `official_usage_unknown`，不得把不支持或未知显示为零额度。
-
-本地统计按管理端时区的当日 `00:00` 至次日 `00:00` 批量聚合，包含请求数、成功/失败数、输入/输出/缓存/推理 Token 和官方价格估算成本。该富统计需要基于 CPA-Manager-Plus 的 `usage_events`、账号模型汇总和 `pro_account_bindings` 新增 Pro 账号聚合能力，不假设 sub2apiplus 行内统计已经提供全部字段。未知模型成本显示为“-”，不按零成本处理。
-
-OpenAI reset credits 是独立的账号能力和上游副作用操作，不属于普通用量刷新，也不同于 CLIProxyAPI 清理本地冷却状态的 `reset-quota`。首期放在 P5：仅对支持该能力的 OpenAI OAuth 账号提供剩余次数查询和重置操作；失败不影响普通用量窗口和账号列表。P1-P4 页面不渲染该按钮；P5 也只有在能力状态为 `supported` 时显示，`unknown` 和 `unsupported` 均隐藏操作。
-
-首期按账号类型展示：
-
-| 账号类型 | 用量窗口 |
+| 接口组 | 用途 |
 |---|---|
-| OpenAI OAuth | 由 `ProAccountUsageService` 通过 Adapter 复用现有 Codex `wham/usage` 查询，显示官方窗口和本地统计 |
-| OpenAI API | 本地统计 |
-| Anthropic OAuth | 由 `ProAccountUsageService` 通过 Adapter 复用现有 Anthropic OAuth usage 查询，显示官方滚动窗口和本地统计 |
-| Anthropic API | 本地统计 |
-| Gemini OAuth / API / Vertex | 首期显示本地统计；官方配额只在 `gemini-cli` 插件或上游明确提供稳定契约后增加 |
-| Antigravity OAuth | 由 `ProAccountUsageService` 通过 Adapter 复用现有配额查询，按模型显示额度和重置时间 |
-| Grok / xAI OAuth | 由 `ProAccountUsageService` 通过 Adapter 复用现有 xAI 配额/账单探测和响应头快照，加本地统计 |
+| `GET/POST /v0/pro/accounts`、`GET/PUT/DELETE /v0/pro/accounts/:id` | 列表、详情和账号生命周期操作 |
+| `POST /v0/pro/accounts/sync`、`GET /binding-reviews`、`POST /rebind` | 存量同步和绑定漂移处理 |
+| `GET /capabilities`、`POST /probe`、`GET /model-catalog` | Gateway 能力检测、候选凭证探测和账号管理静态模型目录 |
+| `/oauth/*`、`POST /vertex`、`POST /:id/complete` | OAuth、Vertex 和停用草稿完成流程；OAuth 状态查询使用 GET |
+| `GET/PUT /:id/models` | 账号管理模型目录、白名单和映射规则 |
+| `GET /:id/usage`、`GET /:id/openai-reset-credits`、`POST /:id/openai-reset` | 本地/官方用量及 OpenAI 配额重置 |
+| `POST /batch`、`GET /operations/*` | 批量操作和持久化操作状态查询 |
+| `/:id/reauthorize/*`、`POST /:id/refresh-token` | OAuth 重新授权和主动刷新凭证；重新授权状态查询使用 GET |
 
-#### 旧入口迁移
+前端请求类型和序列化集中在 `apps/web/src/services/api/proAccounts.ts`，后端入口集中在 `internal/http/controller/proaccount/`，避免账号业务继续散布到原有 Management API 代理代码中。
 
-侧边栏只显示新的 `/accounts` 账号管理。原 `/ai-providers`、`/auth-files`、`/oauth` 路由和页面暂时保留，用于兼容旧书签、旧配置、插件 Provider 和尚未覆盖的高级字段。
+#### 前端实现
 
-旧页面不再作为一级菜单，可从“账号管理 -> 更多操作 -> 高级管理”进入。统一页完成功能对等后，再单独评估删除旧页面。
+- `AccountsPage.tsx`：统一账号表格、筛选、选择、批量操作、行内用量和自动刷新。
+- `AccountWizardModal.tsx`：API、OAuth 和 Vertex 添加流程，以及草稿完成和取消清理。
+- `AccountEditModal.tsx`、`AccountModelRulesEditor.tsx`：账号编辑、账号管理模型目录、白名单和映射。
+- `AccountStatsModal.tsx`、`AccountActionsModal.module.scss`：统计详情和账号操作布局。
+- `AccountReauthorizeModal.tsx`：OAuth 账号重新授权。
+- `AccountBindingReviewModal.tsx`：绑定漂移确认和人工重绑。
+- `accountRefresh.ts`、`accountUsageCache.ts`、`accountTablePresentation.ts`：刷新合并、行内缓存和表格展示逻辑。
 
-#### 实施结构和顺序
+#### CLIProxyAPI 接入
 
-CPA-Manager-Plus 新增 `ProAccountService`、`ProAccountSyncService`、`ProAccountUsageService`、`ProAccountProbeService` 和底层账号 Adapter。统一账号 BFF 使用 Manager 私有的 `/v0/pro/accounts` 命名空间，与 Gateway `/v0/management/*` 透传和插件 Management 命名空间分离：
+Gateway fork 增加两类通用能力，不保存 Pro 账号 UUID：
+
+1. `allowed_models`、模型别名和规则版本进入认证快照、配置合成、Auth Registry 注册及调度路径，使客户端模型列表和真实请求共同遵守账号状态与 `allowed_models` 等账号级规则。客户端模型列表还须按 3.3 的开关行为进行协议组过滤；该过滤不进入实际请求的模型校验与调度路径。
+2. OAuth、插件 OAuth 和 Vertex 认证文件支持首次以 `credential_draft`（兼容旧 `pro_draft`）和 Disabled 状态持久化；API 配置项通过 Management API 直接创建为 Disabled。File、Object、PostgreSQL 和 Git Store 共用认证草稿判断，普通已删除的 Disabled 凭证仍不会被意外重建。
+
+Manager 依赖 Gateway 返回稳定的 `auth_index`、来源定位、实际启用状态、模型规则版本和能力标记；新增 Gateway Management API 字段必须保持向后兼容。
+
+#### 文件范围与上游合并关注点
+
+| 组件 | Pro 新增模块 | 需要与上游反复合并的接入文件 |
+|---|---|---|
+| CPA-Manager-Plus 后端 | `internal/http/controller/proaccount/`、`internal/model/pro_account*.go`、`internal/repository/proaccount*/`、`internal/service/proaccount*/`、`internal/worker/pro_account_*` | `internal/app/context.go`、`internal/http/router/router.go`、`internal/repository/sqlite/migrate.go`、`internal/store/store.go`、`cmd/cpa-manager-plus/main.go` |
+| CPA-Manager-Plus 前端 | `apps/web/src/features/accounts/`、`apps/web/src/pages/AccountsPage.tsx`、`apps/web/src/services/api/proAccounts.ts` | `MainLayout.tsx`、`MainRoutes.tsx`、`services/api/index.ts`、旧账号页面入口 |
+| CLIProxyAPI | `sdk/cliproxy/allowed_models.go`、`sdk/cliproxy/auth/allowed_models.go`、`sdk/cliproxy/auth/credential_draft.go` | `internal/api/handlers/management/auth_files.go`、`config_*.go`、`oauth_sessions.go`、`vertex_import.go`、`internal/watcher/synthesizer/*`、四种 Token Store、`sdk/cliproxy/service.go`、`internal/api/server.go` |
+
+合并上游时先检查上述接入文件，再检查新增目录。重点确认：`/v0/pro/*` 仍在 Management API 代理之前本地匹配；SQLite 迁移保持增量兼容；Gateway 仍回显 `auth_index`、草稿状态和模型规则；四种 Token Store 的 Disabled 草稿语义一致；旧账号路由仍可访问。
+
+#### 验证入口
+
+- Manager 后端：在 `components/cpa-manager-plus/apps/manager-server` 执行 `go test ./...`。
+- Manager 前端：在 `components/cpa-manager-plus/apps/web` 执行 `npm test`、`npm run type-check` 和 `npm run build`。
+- Gateway：在 `components/cliproxyapi` 执行 `go test ./...`。
+- 上游合并后至少回归存量同步、API/OAuth/Vertex 创建、编辑迁移、启停删除、模型规则、用量聚合、恢复 Worker、数据库备份和旧路由兼容。
+
+### 3.2 账号连通性测试
+
+#### 主要解决的问题
+
+账号测试不能只验证某个模型端点是否整体可用，还必须证明指定账号在正式执行链中能够完成请求。Pro 连通性测试主要解决：
+
+1. 使用普通模型请求测试时，调度器可能自动切换到其他可用账号，成功结果不能证明被检查账号本身可用。
+2. 新建草稿或已停用账号不参与正常调度，如果为测试而临时启用，可能在验证完成前接收真实流量。
+3. 不同平台分别使用 Responses、Chat Completions、Messages 和 Generate Content；独立拼接探测请求容易偏离正式协议转换和 Executor 行为。
+4. 测试模型必须经过账号白名单和别名映射，否则测试结果与账号模型规则、调度及真实请求不一致；3.3 的协议组显示过滤不作为连通性测试的调用限制。
+5. 上游错误格式差异较大，原始信息可能过长或包含凭证，需要统一分类、脱敏并保存最近测试状态。
+6. 单次人工测试无法持续发现凭证过期、模型权限或上游连通性变化，需要可复用同一执行逻辑的定时测试和历史结果。
+
+实现后的测试会固定到账号当前绑定的 `auth_index`，允许在不改变持久化启用状态的情况下检查停用账号，并复用生产 Translator、Executor 和 Transport，因此结果反映的是该账号实际进入生产链路时的可用性。
+
+#### 调用链
+
+账号连通性测试已复用 Gateway 的生产翻译和 Executor 链路，不通过 Manager 直接拼接上游 HTTP 请求。
 
 ```text
-GET/POST       /v0/pro/accounts
-GET/PUT/DELETE /v0/pro/accounts/:id
-POST           /v0/pro/accounts/:id/test
-GET            /v0/pro/accounts/:id/usage
-POST           /v0/pro/accounts/sync
-
-P5 按能力提供：
-GET            /v0/pro/accounts/:id/openai-reset-credits
-POST           /v0/pro/accounts/:id/openai-reset
+AccountTestModal
+  -> POST /v0/pro/accounts/:id/test
+     -> ProAccountTestService
+        -> 校验账号版本、当前绑定和 allowed_models
+        -> 应用 model_mapping
+        -> POST CLIProxyAPI /v0/management/account-test
+           -> 按 auth_index 定位并固定 Auth
+           -> 构造最小非流式请求
+           -> ExecuteProtocolWithAuthManager
+           -> 生产 Translator / Executor / Transport
 ```
 
-上述 `/v0/pro/*` 路由由 Manager 精确匹配、本地处理并执行与现有管理页面一致的管理员鉴权；未匹配的 `/v0/pro/*` 返回 `404`，不得转发到 Gateway。现有 `/v0/management/accounts` 及其他 Management API 的转发兼容行为保持不变，并通过兼容测试锁定。前端复用 CPA-Manager-Plus 现有 React Router、Zustand、高密度 Provider 表格和健康检查抽屉的交互模式，不移植 sub2apiplus 的 Vue 组件。
+Manager 使用 `operation_id` 和幂等键记录测试操作，并在完成后更新账号的 `last_tested_at`、健康状态和最近错误。网络调用失败与上游返回的业务失败分别处理，避免把 Manager 到 Gateway 的连接问题误判成账号问题。
 
-BFF 从 P1 起定义可测试的基础契约：列表使用游标分页并支持搜索、平台、认证类型、启用和健康状态筛选；写操作携带 `operation_id`、幂等键和当前资源版本，版本冲突返回机器可识别错误；错误响应统一包含 `code`、`message`、`retryable` 和可选 `details`。`sync` 默认只写 Manager 账号与绑定数据，不改 Gateway 配置；`dry_run=true` 返回新增、更新、待确认和冲突候选，确认同步保持幂等。P5 的批量操作和重绑在进入该阶段时补充独立请求体与逐项结果契约。
+#### 模型和协议处理
 
-底层 Adapter 避免在业务服务中散布平台判断。P1 先定义账号读取能力，例如 `List`、`Get` 和 `ResolveBinding`；P2 增加 `GetUsage` 和用量快照能力；P3 再扩展 `Create`、`Update`、`Enable`、`Delete`、`ProbeCandidate`、`Probe`、`Test` 和 `SyncModels`。Adapter 同时返回 `capabilities`、`supported/unsupported/unknown` 状态和逐项错误，允许单个平台失败而不阻断其他账号。OAuth 认证文件、API 配置、Vertex 和插件 Provider 分别实现适配，不要求 P1 提前实现全部写操作。
+1. 前端从账号管理模型目录选择测试模型，也允许输入手工模型。
+2. Manager 先用账号当前 `allowed_models` 校验客户端模型名，再应用 `model_mapping` 得到上游模型。
+3. OpenAI Responses 使用 `responses`，OpenAI Compatibility 和 xAI 使用 `chat_completions`，Anthropic 使用 `messages`，Gemini 和 Antigravity 使用 `generate_content`。
+4. `default` 模式发送普通最小请求；`compact` 模式只允许 OpenAI Responses 账号，并走 `responses/compact`。
+5. Gateway 根据 `auth_index` 找到运行时 Auth，再通过固定认证元数据禁止调度器切换到其他账号。
+6. 测试停用账号时只克隆并临时清除 Disabled、冷却和错误状态，数据库及 Auth Registry 中的原账号状态不变。
+7. 连通性测试带有 `account_connectivity_test` 和 `execution_source` 元数据，失败不会写入正常调度冷却状态。
 
-凭证操作遵循以下边界：
+#### 结果处理
 
-- 已存在账号的主动配额查询、连通性测试、协议探测优先通过 CLIProxyAPI `/v0/management/api-call`，使用 `auth_index` 和 `$TOKEN$`，Manager 不读取 Gateway 宿主机文件或认证目录。
-- 创建或编辑账号仍通过 CLIProxyAPI 现有配置和认证 Management API；`/api-call` 不能替代配置写入，也不能在没有 `auth_index` 时凭空选择新凭证。
-- CLIProxyAPI 只增加两个必要的能力边界：OAuth/插件认证首次保存即为草稿/停用，以及 Auth/模型 Registry 级的 `allowed_models` 过滤。前者按本节要求包含 Hook 装配、OAuth Session 草稿意图和四种 Store 的首次持久化语义，不能理解为只有一个代码修改点。首期不新增 Gateway 账号数据库、不在每条 usage 事件中写入 `pro_account_id`、不增加新的模型请求代理路径。
-- `/api-call` 不经过模型 Registry。Manager 使用它做测试或探测时必须先校验测试模型属于账号有效白名单，避免测试路径绕过账号模型规则。
-- 新 API Key 只在请求内从 Manager 转交 Gateway，不写入 Manager 日志、SQLite、错误消息或前端持久化状态；新 OAuth/配置先作为停用草稿，探测和模型配置完成后再启用。
+Gateway 返回成功状态、HTTP 状态、协议、模式、模型、上游模型、耗时、响应摘要、错误码和是否可重试。错误统一归类为认证失败、模型不可用、协议不支持、配额耗尽、限流、账号/Executor 不可用及上游异常。
 
-推荐交付阶段：
+响应摘要和错误文本会限制长度，并对常见 API Key 格式进行脱敏。Manager 再将错误码转换为管理员可读提示，同时保留脱敏后的上游摘要用于排查。
 
-1. P0：建立主仓库基线提交、自有 fork、`origin/upstream` 关系、组件版本锁定和顶层 CI；记录 File、Object、PostgreSQL 和 Git Store 的兼容矩阵及测试环境。
-2. P1：只读 Adapter、`pro_accounts`、`pro_account_bindings`、存量同步、只读 BFF 和统一账号列表。
-3. P2：用量 Adapter、行内官方配额、Pro 账号富统计聚合、缓存和懒加载。
-4. P3：写操作与探测 Adapter、持久化草稿状态机、OAuth 草稿首次持久化、四种 Store 兼容测试、账号级白名单传播和回读、协议探测和连通性测试基础能力。某 Store 尚未通过草稿兼容测试时，使用该 Store 的部署必须禁用 Pro OAuth 添加并返回明确能力错误。
-5. P4：添加、编辑、启停、删除、OpenAI 底层协议迁移和失败补偿。
-6. P5：批量操作、错误分类、批量漂移重绑和 OpenAI reset credits 查询/重置。
-7. P6：旧入口隐藏、兼容验证、跨版本迁移、SQLite 备份恢复和上游合并测试。
+#### 定时测试
 
-#### 组件改造范围
+定时测试复用同一个 `ProAccountTestService`，不会维护第二套测试实现：
 
-- CPA-Manager-Plus：实现 `/v0/pro/accounts` 私有 BFF、统一账号页面、SQLite 账号表和绑定历史、只读及读写 Adapter、持久化草稿状态机和补偿动作、添加向导、底层账号归一化、OpenAI 探测与迁移编排、模型配置、Pro 账号富统计聚合、状态和用量展示，以及 P5 的 OpenAI reset credits 能力。现有 Provider 表格、健康检查和 React 状态管理作为 UI 基础复用。
-- CLIProxyAPI：优先复用现有 Management API。首期复用已有 `auth_index`、认证快照和用量事件字段，不新增 `pro_account_id` 到每条用量事件；仅增加 OAuth/插件草稿首次持久化能力和 Auth/模型 Registry 级白名单能力。草稿持久化规则覆盖 File、Object、PostgreSQL 和 Git Store。只有现有事件无法提供账号标识时，才补充最小的 auth 快照字段。
+- `pro_account_scheduled_tests` 保存账号、模型、Cron、启用状态、结果保留数和自动恢复选项。
+- `pro_account_scheduled_test_results` 保存每次运行的状态、错误、响应摘要和延迟。
+- `ProAccountScheduledTestRunner` 在 Manager 启动后执行到期计划，并按 `max_results` 清理旧结果。
+- `/v0/pro/accounts/:id/scheduled-test-plans` 提供计划的查询、创建、更新和删除；子路由提供立即运行和结果查询。
+- `AccountScheduledTestsModal.tsx` 负责计划编辑和历史结果展示。
 
-#### 验收标准
+#### 修改文件
 
-1. 所有平台账号可在一个表格中查看，不需切换 AI Provider、认证文件和 OAuth 页面。
-2. 每个平台只显示上表允许的添加方式，并在添加阶段配置允许模型。
-3. OpenAI API 同时支持两个协议时优先 Responses，不重复创建账号。
-4. Gemini API 可自定义 Base URL；OpenAI 格式的 Gemini 中转站从 OpenAI 添加。
-5. Grok / xAI 和 Antigravity 不显示 API 添加入口。
-6. 账号表格直接显示紧凑的用量区域；官方配额可用时显示窗口、进度和重置时间，否则显示本地统计或“暂无官方配额数据”。
-7. 无官方配额时正确降级为本地统计，不显示虚假百分比或剩余额度。
-8. 用量查询失败不影响账号列表和其他账号；桌面和移动端不出现重叠、截断或表格抖动。
-9. 存量配置能在统一列表中识别，旧路由仍可访问。
-10. 添加、编辑、启停、删除和测试能正确作用于底层配置或认证文件。
-11. 页面、日志和错误信息不暴露 API Key、OAuth Token 或鉴权 Header。
-12. 通过统一页面更换 Key、Base URL 或 OpenAI 底层协议后 `pro_account_id` 不变；绑定历史保留，历史用量仍归属同一账号。
-13. 空白名单允许全部模型；非空白名单对模型列表、调度、测试和真实请求同时生效。
-14. 自动刷新不会循环请求上游官方配额；只有用户主动查询时才使用 `active&force=true`。
-15. `/v0/pro/accounts` 及其子路由只由 Manager 本地处理，未知 `/v0/pro/*` 返回 `404`；原 `/v0/management/accounts` 和其他 Gateway Management API 的转发行为不被静默改变。
-16. OAuth 和插件 OAuth 新凭证首次保存时即为不可调度草稿；File、Object、PostgreSQL 和 Git Store 都能持久化带草稿标记的 Disabled 凭证，普通已删除 Disabled 凭证不会被重新创建。
-17. 用户取消、授权超时、服务重启或后续步骤失败后，持久化状态机可以继续清理或补偿，不遗留短暂参与调度的凭证。
-18. 认证目录、文件名、Key 或 Base URL 变化后可保留账号 UUID；无法唯一匹配时进入待确认，批量漂移可批量重绑，任何指纹都不会触发自动合并。
-19. Pro 的 `passive`、`active` 和 `force` 在所有支持账号类型上遵循统一 BFF 契约；富统计按 Pro 账号全部历史绑定聚合，不复用 sub2apiplus 的商业 A/U 双成本语义。
-20. 支持 reset credits 的 OpenAI OAuth 账号可以查询剩余次数并在二次确认后执行重置；不支持或状态未知时不显示虚假次数，失败不影响普通用量查询。
-21. SQLite 升级迁移、回滚、备份和恢复流程通过发布验收，恢复后账号 UUID、绑定历史、草稿状态和历史用量归属保持正确。
-22. 存量同步重复执行不会产生重复账号；精确命中、创建、待确认和冲突结果可区分，无法唯一识别时不自动合并。
-23. 历史用量按事件时间与绑定有效期归属；绑定变化后的回填不会把路径重用或相同 `auth_index` 不同时期的事件归错账号。
-24. Manager 保存的模型规则与 Gateway 回显的生效规则及版本一致；共享 Provider 下修改一个 Key 的白名单不会影响其他账号，写入或回读失败时旧规则保持可用。
-25. 新 API Key 在没有 `auth_index` 时可以使用不持久化的候选凭证完成预探测；最终测试只使用已停用草稿的 `auth_index`，临时凭证不进入日志、SQLite 或调度。
-26. 只支持本地统计的账号收到主动官方查询时返回统一结构和 `official_usage_unsupported`，不请求不存在的上游接口，也不显示虚假额度。
+| 组件 | 主要文件 |
+|---|---|
+| Manager 前端 | `apps/web/src/features/accounts/AccountTestModal.tsx`、`AccountScheduledTestsModal.tsx`、`apps/web/src/services/api/proAccounts.ts` |
+| Manager BFF | `internal/http/controller/proaccount/handler.go`、`internal/http/controller/proaccountscheduledtest/` |
+| Manager 服务 | `internal/service/proaccounttest/service.go`、`internal/service/proaccountgateway/connectivity.go`、`internal/service/proaccountscheduledtest/` |
+| Manager 持久化与任务 | `internal/model/pro_account_schedule.go`、`internal/repository/proaccountscheduledtest/`、`internal/repository/sqlite/pro_account_scheduled_test_migration.go`、`internal/worker/pro_account_scheduled_runner.go` |
+| Gateway Management API | `internal/api/handlers/management/account_connectivity.go`、`internal/api/server.go` |
+| Gateway 生产执行接入 | `sdk/api/handlers/handlers.go`、`sdk/cliproxy/executor/types.go`、`sdk/cliproxy/auth/conductor.go` |
 
-### 3.2 API Key 官方客户端兼容
+对应测试集中在同目录的 `*_test.go`、`AccountTestModal.test.tsx` 和 `AccountScheduledTestsModal.test.tsx`。上游合并时重点检查 Gateway 的 Management 路由注册、执行元数据传递和 Auth 选择逻辑，确保测试仍固定到指定账号且不会改变正常调度状态。
+
+### 3.3 按协议显示模型列表
+
+CLIProxyAPI Pro 提供“按协议显示模型列表”开关。Kilo 根据用户选择的 `Provider API`，自动使用对应的推理端点和模型列表请求。
+
+| Provider API | 推理端点 | 模型列表识别方式 | 开启后显示范围 |
+|---|---|---|---|
+| Anthropic Messages | `/v1/messages` | `GET /v1/models`，携带 `Anthropic-Version` | Anthropic 协议账号提供的模型 |
+| OpenAI Responses | `/v1/responses` | `GET /v1/models`，使用 OpenAI 格式 | OpenAI 协议账号提供的模型 |
+| OpenAI Compatible | `/v1/chat/completions` | `GET /v1/models`，使用 OpenAI 格式 | OpenAI 协议账号提供的模型 |
+| Gemini Native | `/v1beta/models/{model}:generateContent` | `GET /v1beta/models` | Gemini 协议组账号提供的模型 |
+
+模型所属协议组由提供该模型的上游账号类型决定，不根据模型名称判断。例如，通过 OpenAI 兼容协议接入的智谱、Grok 或其他中转站模型均属于 OpenAI 模型组。
+
+开关行为：
+
+1. 关闭时，各协议的模型列表均返回所有当前可用模型。
+2. 开启时，只显示当前客户端协议对应的模型组；OpenAI Responses 和 OpenAI Compatible 共用 OpenAI 模型组。
+3. 模型列表仍需遵守账号状态和 `allowed_models` 白名单。
+4. 该开关只影响模型列表，不限制实际调用。用户手动填写其他协议组的模型 ID 时，只要模型符合账号白名单且存在可用账号，Gateway 仍可通过内部协议转换完成调用。
+5. 无法识别协议归属的模型及插件提供的模型在各协议目录中保持可见；Home 模式继续使用控制中心返回的全量模型目录，不应用该过滤。
+
+例如，客户端通过 `/v1/messages` 手动调用 OpenAI 协议账号提供的模型时，Gateway 将 Anthropic Messages 请求转换为对应的 OpenAI 上游协议，并将响应转换回 Anthropic Messages 格式。
+
+### 3.4 API Key 官方客户端兼容
 
 Anthropic 和 OpenAI API Key 账号提供“官方客户端兼容”开关。
 
@@ -393,52 +319,6 @@ Anthropic 和 OpenAI API Key 账号提供“官方客户端兼容”开关。
 
 该功能只要求尽量接近已验证的官方请求形态，不复制隐藏 Prompt、产品 Memory 或账号状态，也不承诺 TLS 和 HTTP/2 帧级指纹完全一致。
 
-### 3.3 协议模型列表配置
-
-管理员可以分别自定义每个协议模型列表中显示的模型，包括增加、删除、同步和排序。下表仅为默认值，不按 Provider 硬编码：
-
-| 协议 | 默认模型范围 |
-|---|---|
-| Anthropic Messages | Claude 模型 |
-| OpenAI Responses | OpenAI / Codex Responses 模型 |
-| OpenAI Chat Completions | OpenAI 兼容、Grok 等模型 |
-| Gemini 原生协议 | Gemini、Antigravity 等模型 |
-
-要求：
-
-1. 模型列表和实际调用使用同一份规则。
-2. 手工填写隐藏模型时必须拒绝调用。
-3. 模型映射后再次校验最终模型。
-4. 保留现有标准地址，不要求新增协议专用 Base URL。
-
-部分客户端使用静态模型目录，服务端可能无法控制其界面显示，但仍须限制实际调用。
-
-OpenAI Responses 和 Chat Completions 客户端都可能请求同一个 `/v1/models`。当请求没有携带可识别的客户端特征时，服务端无法可靠判断应返回哪一份列表；具体识别和回退规则在技术设计阶段确定。
-
-### 3.4 账号连通性测试
-
-所有账号都可以在统一账号页面执行测试：
-
-```text
-选择账号和模型
-  -> 应用最终模型映射
-  -> 根据账号设置选择普通请求或官方兼容 profile
-  -> 发起最小真实请求
-  -> 显示并保存结果
-```
-
-测试结果至少区分：
-
-- 成功。
-- 认证失败。
-- 模型不可用或无权限。
-- 协议不兼容。
-- 配额耗尽或限流。
-- 网络、代理或 TLS 错误。
-- 上游服务异常。
-
-测试流量应进入 Token 和成本统计，并单独标记。HTTP 200 但正文为降级或临时不可用提示时不能判定为成功。
-
 ## 4. 组件分工
 
 | 功能 | CPA-Manager-Plus | CLIProxyAPI |
@@ -449,7 +329,7 @@ OpenAI Responses 和 Chat Completions 客户端都可能请求同一个 `/v1/mod
 | 连通性测试 | 页面和结果展示 | 执行真实请求 |
 | 用量、成本和健康状态 | 主要实现 | 产生运行数据 |
 | 官方客户端兼容 | 配置和状态展示 | Executor、Transport 和路由执行 |
-| 协议模型范围 | 配置页面 | 过滤列表并限制调用 |
+| 按协议显示模型列表 | 配置页面 | 识别客户端协议并按上游账号协议过滤模型列表 |
 
 CPA-Manager-Plus 不代理普通模型请求，只通过 CLIProxyAPI Management API 管理配置和认证文件，不绕过 API 直接读写 Gateway 宿主机文件、认证目录或运行数据库。
 
@@ -461,7 +341,7 @@ CPA-Manager-Plus 不代理普通模型请求，只通过 CLIProxyAPI Management 
 4. OAuth 和 API Key 账号都可以配置允许模型和模型映射。
 5. 每个账号都可以测试连通性，并显示明确失败原因。
 6. 开启官方客户端兼容后，Claude 和 Codex 请求通过抓包对比测试。
-7. 管理员可以分别配置四种协议显示的模型；可识别的模型目录请求按对应配置返回，隐藏模型无法直接调用。
+7. 开启按协议显示模型列表后，各模型目录仅显示对应账号协议组；未知、插件及 Home 模型保持全量；列表隐藏不影响手工调用。
 8. 每个账号和 Key 都能查看 Token、请求次数和官方成本估算。
 9. Manager 故障不影响 CLIProxyAPI 继续处理模型请求。
 10. 两个组件可以独立升级和回滚。
@@ -473,7 +353,7 @@ CPA-Manager-Plus 不代理普通模型请求，只通过 CLIProxyAPI Management 
 3. 实现统一账号页面、添加向导、用量窗口和连通性测试。
 4. 实现 OpenAI API Key 自动探测和账号模型配置。
 5. 在 CLIProxyAPI 增加 Claude/Codex 官方客户端兼容 profile。
-6. 在 CLIProxyAPI 实现协议模型策略、模型目录识别和回退规则。
+6. 在 CLIProxyAPI 实现协议模型策略、协议组归属、开关行为和模型列表过滤规则。
 7. 完成集成与升级测试后发布第一版。
 
 ## 7. 默认目录与部署
@@ -482,6 +362,8 @@ CPA-Manager-Plus 不代理普通模型请求，只通过 CLIProxyAPI Management 
 
 ```text
 cliproxyapi-pro/
+├── .references/                 # 本地只读参考源码，主仓库忽略
+│   └── sub2apiplus/
 ├── components/
 │   ├── cliproxyapi/
 │   └── cpa-manager-plus/
@@ -514,6 +396,6 @@ cliproxyapi-pro-manager
 
 `gateway` 负责模型请求，`manager` 负责管理页面和统计。两个镜像通过一个 Compose 安装，对外使用同一个域名。
 
-`sub2apiplus` 只作为开发参考，不放入 CLIProxyAPI Pro 项目。
+`sub2apiplus` 只作为本地开发参考，可放在工作区的 `.references/sub2apiplus`；该目录被主仓库本地忽略，不属于 CLIProxyAPI Pro Git 仓库、产品架构或部署内容。
 
 产品名称使用 `CLIProxyAPI Pro`；开发目录、仓库名、安装目录、Compose 项目名和 Docker 镜像名称统一使用小写 `cliproxyapi-pro`。

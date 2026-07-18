@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "manager-web-demo",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:demo", "--", "--port", "5273", "--strictPort"],
+      "port": 5273,
+      "cwd": "components/cpa-manager-plus/apps/web"
+    },
+    {
+      "name": "bwg-tunnel",
+      "runtimeExecutable": "ssh",
+      "runtimeArgs": ["-L", "127.0.0.1:18317:10.29.12.101:18317", "-N", "BWG"],
+      "port": 18317
+    }
+  ]
+}

@@ -2,7 +2,7 @@ name: cliproxyapi-pro
 
 services:
   cli-proxy-api:
-    image: cliproxyapi-pro/cli-proxy-api:fb818d34
+    image: cliproxyapi-pro/cli-proxy-api:protocol-model-list-20260718215802
     pull_policy: never
     container_name: cli-proxy-api
     restart: unless-stopped
@@ -29,7 +29,7 @@ services:
       - ./gateway/plugins:/CLIProxyAPI/plugins
 
   cpa-manager-plus:
-    image: cliproxyapi-pro/cpa-manager-plus:dcdfa3c9
+    image: cliproxyapi-pro/cpa-manager-plus:pro-section-last-20260718224934
     pull_policy: never
     container_name: cpa-manager-plus
     restart: unless-stopped
@@ -43,6 +43,7 @@ services:
     ports:
       - "10.29.12.101:18317:18317"
     environment:
+      TZ: Asia/Shanghai
       HTTP_ADDR: "0.0.0.0:18317"
       USAGE_DATA_DIR: /data
       USAGE_DB_PATH: /data/usage.sqlite
