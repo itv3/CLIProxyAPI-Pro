@@ -7,14 +7,14 @@ CLIProxyAPI Pro 基于两个开源项目开发：
 - [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)：负责模型请求、协议转换、账号调度、OAuth、API Key 和统一下游 Key。
 - [CPA-Manager-Plus](https://github.com/seakee/CPA-Manager-Plus)：负责管理页面、账号管理、统计、成本、监控和运维。
 
-开发工作区初始使用两个官方仓库作为 Git 子模块；建立自有 fork 后替换子模块地址，并继续保留官方仓库作为上游更新来源。
+开发工作区初始使用两个官方仓库作为 Git 子模块；建立自有 fork 后替换子模块地址，并继续保留官方仓库作为上游更新来源。组件版本以主仓库记录的子模块 SHA 为唯一权威：Docker 镜像标签由 CI 从对应 SHA 构建生成，只作为发布产物标识，不构成第二套版本来源。
 
 整体结构：
 
 ```text
 CLIProxyAPI Pro
 = CPA-Manager-Plus 主要改造
-+ CLIProxyAPI 少量运行时改造
++ CLIProxyAPI 有界运行时改造
 + 统一安装、测试和发布
 ```
 
@@ -37,6 +37,17 @@ CLIProxyAPI Pro 对外是一个产品，内部保留两个独立组件：
                           +-- Management API --> CLIProxyAPI
 ```
 
+反向代理是统一入口。代理选型、TLS 终止和完整配置由部署设计确定，本节只锁定路由与透传契约：
+
+| 路径 | 目标组件 | 说明 |
+|---|---|---|
+| 各协议标准模型地址（`/v1/*`、`/v1beta/*` 等） | CLIProxyAPI | 支持 SSE 流式透传和 WebSocket 长连接，不缓冲流式响应体 |
+| `/v0/management/*` | CPA-Manager-Plus | 按现有行为由 Manager 透传到 CLIProxyAPI |
+| `/v0/pro/*` | CPA-Manager-Plus | Manager 本地处理；未匹配路由返回 `404`，不转发到 CLIProxyAPI |
+| 管理页面及其静态资源 | CPA-Manager-Plus | 由 Manager 提供页面和管理接口 |
+
+普通模型请求流量不经过 CPA-Manager-Plus；Manager 停止服务时，反向代理和 CLIProxyAPI 仍应能够独立处理模型请求。
+
 开发原则：
 
 1. 分别维护 CLIProxyAPI fork 和 CPA-Manager-Plus fork。
@@ -44,6 +55,7 @@ CLIProxyAPI Pro 对外是一个产品，内部保留两个独立组件：
 3. 使用 Docker Compose 一键安装，两个组件保持独立容器和数据目录。
 4. 不把两个项目合并成一个 Go 工程、二进制或进程。
 5. Pro 功能尽量通过新增模块和少量接入点实现，方便继续合并上游更新。
+6. Manager 的 SQLite 与 Gateway 的配置和认证文件之间不存在跨组件事务；跨组件写操作按最终一致设计，一致性由 3.1 定义的持久化草稿状态机、幂等键和补偿动作保证。
 
 ### 本地参考源码
 
