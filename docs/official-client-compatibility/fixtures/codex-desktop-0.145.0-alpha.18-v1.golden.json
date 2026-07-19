@@ -1,0 +1,287 @@
+{
+  "schema_version": 1,
+  "profile_id": "codex-desktop-0.145.0-alpha.18-v1",
+  "provider": "codex",
+  "status": "active",
+  "client": {
+    "product": "Codex Desktop",
+    "client_version": "0.145.0-alpha.18",
+    "desktop_build": "26.715.31925",
+    "platform": "Mac OS 26.5.2/arm64"
+  },
+  "evidence": {
+    "primary_level": "capture_verified",
+    "capture_layer": "nginx_to_backend_http1",
+    "pcap_sha256": [
+      "caeadd94ffc4d838d32d1bb0a848120e9d04073b9bec5e1f7db084601e746e0e",
+      "d8d48f69d54724219b9d8ebd757638580bd531c68405fdef420cee1ed18ddc49",
+      "7d915c55e8c87ac7432be90a8556d37384ac057e892b3702b5e7b8a649c3fc02"
+    ],
+    "sample_counts": {
+      "responses_http_sse_baseline": 6,
+      "responses_websocket_upgrade_baseline": 11,
+      "responses_http_sse_local_desktop": 4,
+      "manual_compaction_turn": 1,
+      "responses_compact_route": 0
+    },
+    "limitations": [
+      "TLS、ALPN、客户端直连 HTTP/2 和 Header 顺序未验证",
+      "WebSocket 数据帧仅用于官方客户端跳过回归，不构成首版上游 WS Profile",
+      "原始请求正文和身份值不进入 Fixture"
+    ]
+  },
+  "transport": {
+    "tls_profile": "",
+    "profile_upstream_mode": "http_sse",
+    "official_client_bypass_modes": [
+      "http_sse",
+      "websocket"
+    ],
+    "observed_accept_encoding": "gzip, br",
+    "observed_request_content_encoding": "zstd",
+    "compression_policy": "existing_transport_managed"
+  },
+  "official_client_detection": {
+    "case_insensitive_match_any": [
+      {
+        "header": "user-agent",
+        "prefix": "codex desktop/"
+      },
+      {
+        "header": "originator",
+        "equals": "Codex Desktop"
+      },
+      {
+        "header": "user-agent",
+        "prefix": "codex_cli_rs/"
+      }
+    ],
+    "purpose": "只决定是否跳过 Profile，不作为鉴权边界"
+  },
+  "headers": {
+    "fixed_http_sse": {
+      "accept": "text/event-stream",
+      "content-type": "application/json",
+      "originator": "Codex Desktop",
+      "user-agent": "Codex Desktop/0.145.0-alpha.18 (Mac OS 26.5.2; arm64) unknown (Codex Desktop; 26.715.31925)",
+      "x-codex-beta-features": "remote_compaction_v2"
+    },
+    "fixed_compact": {
+      "accept": "application/json",
+      "content-type": "application/json",
+      "originator": "Codex Desktop",
+      "user-agent": "Codex Desktop/0.145.0-alpha.18 (Mac OS 26.5.2; arm64) unknown (Codex Desktop; 26.715.31925)",
+      "x-codex-beta-features": "remote_compaction_v2"
+    },
+    "authentication": {
+      "authorization": "Bearer <account_api_key>",
+      "x-api-key": "absent"
+    },
+    "remove_http_sse": [
+      "conversation_id",
+      "openai-beta",
+      "session_id",
+      "version",
+      "x-codex-turn-state",
+      "x-openai-internal-codex-responses-lite"
+    ],
+    "dynamic_relations": {
+      "x-client-request-id": "session_id",
+      "session-id": "session_id",
+      "thread-id": "thread_id",
+      "x-codex-window-id": "window_id",
+      "x-codex-turn-metadata": "serialized_turn_metadata"
+    },
+    "protected_case_insensitive": [
+      "authorization",
+      "conversation_id",
+      "openai-beta",
+      "originator",
+      "session-id",
+      "session_id",
+      "thread-id",
+      "user-agent",
+      "version",
+      "x-api-key",
+      "x-client-request-id",
+      "x-codex-beta-features",
+      "x-codex-turn-metadata",
+      "x-codex-turn-state",
+      "x-codex-window-id",
+      "x-openai-internal-codex-responses-lite"
+    ]
+  },
+  "identity": {
+    "installation_id": {
+      "format": "uuid",
+      "lifecycle": "installation",
+      "stable_seed_inputs": [
+        "profile_id",
+        "auth_id",
+        "provider"
+      ]
+    },
+    "session_id": {
+      "format": "uuid",
+      "lifecycle": "logical_session",
+      "must_not_use_api_key_as_seed": true
+    },
+    "thread_id": {
+      "relation": "session_id"
+    },
+    "window_id": {
+      "format": "<session_id>:<non_negative_integer>",
+      "implementation_initial_suffix": 0
+    },
+    "turn_id": {
+      "format": "uuid",
+      "lifecycle": "request"
+    },
+    "turn_started_at_unix_ms": {
+      "type": "integer",
+      "lifecycle": "request"
+    },
+    "prompt_cache_key": {
+      "relation": "session_id"
+    }
+  },
+  "endpoints": {
+    "responses_http_sse": {
+      "evidence_level": "capture_verified",
+      "method": "POST",
+      "path": "/v1/responses",
+      "response_mode": "sse",
+      "body": {
+        "force": {
+          "store": false,
+          "stream": true
+        },
+        "ensure_include_contains": [
+          "reasoning.encrypted_content"
+        ],
+        "ensure_if_missing": {
+          "reasoning.context": "all_turns",
+          "text.verbosity": "low"
+        },
+        "preserve_if_present": [
+          "instructions",
+          "parallel_tool_calls",
+          "reasoning.effort",
+          "reasoning.summary",
+          "stream_options",
+          "tool_choice",
+          "tools"
+        ],
+        "observed_not_forced": {
+          "parallel_tool_calls": false,
+          "reasoning.effort": "high",
+          "reasoning.summary": "detailed",
+          "stream_options.reasoning_summary_delivery": "sequential_cutoff",
+          "tool_choice": "auto"
+        },
+        "input_normalization": [
+          "normalize_bare_role_content_messages",
+          "convert_system_role_to_developer"
+        ],
+        "inject_default_instructions": false,
+        "client_metadata": {
+          "required_keys": [
+            "session_id",
+            "thread_id",
+            "turn_id",
+            "x-codex-installation-id",
+            "x-codex-turn-metadata",
+            "x-codex-window-id"
+          ],
+          "forbidden_context": [
+            "account_state",
+            "git_commit_hash",
+            "local_paths",
+            "product_memory",
+            "remote_urls",
+            "workspace_changes"
+          ]
+        },
+        "turn_metadata": {
+          "required_dynamic_keys": [
+            "installation_id",
+            "session_id",
+            "thread_id",
+            "turn_id",
+            "turn_started_at_unix_ms",
+            "window_id"
+          ],
+          "fixed_public_values": {
+            "request_kind": "turn",
+            "sandbox": "none",
+            "thread_source": "user",
+            "workspace_kind": "project"
+          }
+        }
+      }
+    },
+    "responses_compact": {
+      "evidence_level": "reference_derived",
+      "method": "POST",
+      "path": "/v1/responses/compact",
+      "response_mode": "json",
+      "body_allowlist": [
+        "input",
+        "instructions",
+        "model",
+        "parallel_tool_calls",
+        "previous_response_id",
+        "reasoning",
+        "text",
+        "tools"
+      ],
+      "body_remove_explicit": [
+        "client_metadata",
+        "prompt_cache_key",
+        "store",
+        "stream"
+      ],
+      "apply_responses_defaults": false,
+      "inject_client_metadata": false,
+      "inject_default_instructions": false
+    },
+    "official_responses_websocket_bypass": {
+      "evidence_level": "capture_verified",
+      "method": "GET",
+      "path": "/v1/responses",
+      "profile_action": "bypass",
+      "observed_headers": {
+        "connection": "upgrade",
+        "openai-beta": "responses_websockets=2026-02-06",
+        "sec-websocket-extensions": "permessage-deflate; client_max_window_bits",
+        "sec-websocket-version": "13",
+        "upgrade": "websocket"
+      }
+    }
+  },
+  "manual_compaction_observation": {
+    "evidence_level": "capture_verified",
+    "actual_route": "/v1/responses",
+    "not_observed_route": "/v1/responses/compact",
+    "turn_metadata": {
+      "request_kind": "compaction",
+      "compaction": {
+        "implementation": "responses_compaction_v2",
+        "phase": "standalone_turn",
+        "reason": "user_requested",
+        "strategy": "memento",
+        "trigger": "manual"
+      }
+    },
+    "implementation_policy": "该观察只记录当前官方客户端行为，不替代项目已有 Compact API 分支"
+  },
+  "excluded": [
+    "Codex CLI 可选 Profile",
+    "隐藏 Instructions、Prompt 或产品 Memory",
+    "移动远程客户端 UA 后缀",
+    "非空 TLS Profile",
+    "上游 WebSocket Profile",
+    "工作区路径、Git 信息和账号状态",
+    "代理注入 Header"
+  ]
+}

@@ -1,6 +1,6 @@
 # API Key 官方客户端兼容实施方案
 
-- 状态：待实施
+- 状态：已完成（2026-07-20；变更集 0 至 5 已完成，外部上游限制已单独记录）
 - 对应需求：[readme.md 3.4 API Key 官方客户端兼容](../readme.md#34-api-key-官方客户端兼容)
 
 ## 1. 目标与首版范围
@@ -42,8 +42,8 @@
 
 - Claude `/v1/messages`：非流式、流式、带工具、无工具。
 - Claude `/v1/messages/count_tokens`。
-- Codex `/v1/responses`：现有普通执行与 SSE。
-- Codex `/v1/responses/compact`。
+- Codex `/v1/responses`：现有普通执行、SSE 和手工 `/compact` 命令的真实请求信号。
+- Codex `/v1/responses/compact`：当前客户端未发出该路由，作为项目已有兼容端点按参考实现冻结独立契约，不作为继续抓包或开始开发的阻塞项。
 - 官方 Codex WebSocket 路由，仅用于确认跳过兼容时的当前行为。
 
 ### 3.2 冻结内容
@@ -61,7 +61,17 @@
 - 已发布 Profile 不原地修改；契约变化时新增 Profile ID。
 - 未知、废弃或 Provider 不匹配的 Profile 直接拒绝，不静默回退。
 - 原始抓包不进入仓库；仓库只保存脱敏契约和 Golden Fixture。
-- `sub2apiplus` 只作规则参考和交叉验证，不能替代本项目真实抓包。
+- `sub2apiplus` 只作规则参考和交叉验证，不能替代本项目真实抓包。当前官方客户端没有发出的历史兼容端点必须明确标记为 `reference_derived`，不得宣称已经通过当前客户端抓包验证。
+
+### 3.4 已冻结结果
+
+- Claude Profile：`claude-desktop-2.1.215-v1`。
+- Codex Profile：`codex-desktop-0.145.0-alpha.18-v1`。
+- 脱敏契约：[API Key 官方客户端兼容 Profile 契约](official-client-compatibility/profile-contracts.md)。
+- Golden Fixture：[`official-client-compatibility/fixtures`](official-client-compatibility/fixtures/)。
+- 原始 PCAP 保持在仓库外且权限为 `0600`；仓库只记录 SHA-256、统计和脱敏结构。
+- 抓包位于 TLS 终止后的 Nginx → backend HTTP/1.1 链路，不能冻结 ClientHello、ALPN、客户端直连 HTTP/2、Header 顺序和代理注入 Header。
+- 当前 Codex 手工 `/compact` 使用普通 `POST /v1/responses`，通过 Turn Metadata 的 `request_kind=compaction` 和 `responses_compaction_v2` 信号表达；没有调用 `/v1/responses/compact`。
 
 ## 4. 配置契约
 
@@ -265,10 +275,11 @@ Count Tokens 使用独立构造规则：
 
 ### 11.2 Compact
 
-- 保持现有独立 unary JSON 分支。
-- 最终阶段删除抓包未包含的普通 Responses 字段，重点检查 `stream`、`store`、`prompt_cache_key`、`client_metadata`。
-- 使用 Compact 专属 Header 和 Accept。
-- 不复用普通 Responses Body 模板。
+- 当前 Codex Desktop 手工 `/compact` 命令仍走普通 `POST /v1/responses`，不得把 UI 命令与 Compact API 路由混为一谈。
+- 项目已有 `/v1/responses/compact` 保持独立 unary JSON 分支，其首版规则标记为 `reference_derived`。
+- 最终阶段按 allowlist 只保留 `model`、`input`、`instructions`、`tools`、`parallel_tool_calls`、`reasoning`、`text`、`previous_response_id`，并删除 `stream`、`store`、`prompt_cache_key`、`client_metadata` 及其他普通 Responses 字段。
+- 使用 Compact 专属 `Accept: application/json`，不复用普通 Responses Body 模板，不注入客户端 Metadata 或隐藏 Instructions。
+- 后续官方客户端若重新发出独立 Compact 路由，必须用新抓包发布新 Profile ID，不原地修改现有契约。
 
 ### 11.3 WebSocket
 
@@ -379,14 +390,16 @@ Count Tokens 使用独立构造规则：
 
 ### 变更集 0：抓包与契约
 
-- 取得真实脱敏抓包。
-- 输出 Claude/Codex Profile 契约。
-- 冻结精确 Profile ID。
-- 建立脱敏 Golden Fixture。
-- 不修改运行代码。
+- 状态：已完成（2026-07-19）。
+- 已取得真实抓包并只保存仓库外原始 PCAP。
+- 已输出 Claude/Codex [Profile 契约](official-client-compatibility/profile-contracts.md)。
+- 已冻结 `claude-desktop-2.1.215-v1` 和 `codex-desktop-0.145.0-alpha.18-v1`。
+- 已建立脱敏、机器可读 [Golden Fixture](official-client-compatibility/fixtures/)。
+- 未修改运行代码。
 
 ### 变更集 1：配置骨架
 
+- 状态：已完成（2026-07-19）。
 - 嵌套配置结构和统一校验。
 - Profile 注册表。
 - JSON Attributes 合成和读取。
@@ -397,7 +410,7 @@ Count Tokens 使用独立构造规则：
 - 上述测试必须在不重启 Gateway 的条件下验证，且后续一次 Profile 决策读取到新值；本变更集暂不以上游请求形态变化作为判定条件。
 - 暂不改变实际请求形态。
 
-### 变更集 2：Anthropic
+### 变更集 2：Anthropic（已完成）
 
 - Messages 非流式与 SSE。
 - Count Tokens 独立规则。
@@ -405,6 +418,9 @@ Count Tokens 使用独立构造规则：
 - 实际工具映射及 JSON/SSE 响应回写。
 - 正式请求与连通性测试抓包对比。
 - 仅修改兼容开关、不重启 Gateway，验证下一次 Claude 上游请求立即切换为对应的 Profile 或普通链路形态。
+- 已实现 Claude Desktop `2.1.215` 独立 Profile，覆盖 Messages 非流式、SSE 和 Count Tokens。
+- 已实现冻结 Header/Beta、公开 System 身份、稳定 Metadata/Session、8 个工具名映射及 JSON/SSE 请求级回写。
+- 已验证官方客户端绕过、连通性测试强制应用、运行时配置错误请求级终止，以及不重启热切换。
 
 ### 变更集 3：Codex
 
@@ -414,20 +430,34 @@ Count Tokens 使用独立构造规则：
 - 绕过冲突的 `cacheHelper`、`identity-confuse`。
 - HTTP/SSE 和官方 WebSocket 路由回归。
 - 仅修改兼容开关、不重启 Gateway，验证下一次 Codex 上游请求立即切换为对应的 Profile 或普通链路形态。
+- 已实现 Codex Desktop `0.145.0-alpha.18` 独立 Profile，覆盖普通 Responses、SSE 和 reference-derived Compact。
+- 已实现冻结 Header、Installation/Session/Thread/Window/Turn 身份、Client Metadata 和缓存键，并在 Profile 分支绕过 `cacheHelper`、`identity-confuse` 的冲突写入。
+- 已验证官方客户端 WebSocket 路由保留、非官方客户端 Profile 强制 HTTP/SSE、连通性测试强制应用、运行时配置错误请求级终止，以及不重启热切换。
 
-### 变更集 4：Manager
+### 变更集 4：Manager（已完成）
 
 - 后端 DTO、Gateway 生命周期和失败补偿。
 - 新增向导和编辑/详情弹窗。
 - `compatibilityChanged` 独立保存。
 - 旧 Provider 未知字段保留测试。
+- 已实现 Gateway 能力探测、实时详情、定点 PATCH、写后回读、失败恢复和恢复结果验证；旧 Gateway 不接收新字段。
+- 已实现创建写入、热编辑、凭据迁移继承，以及混合更新后续失败时恢复旧兼容配置。
+- 已实现 Anthropic API Key、OpenAI Responses/Codex API Key 的前端门控，实时展示 Profile ID 和默认 TLS Transport，不提供首版 Profile/TLS 选择器。
+- 已验证 Manager 数据库和账号列表不保存兼容配置，Claude/Codex 旧 Provider 整表 PUT 保留未知兼容块。
+- Manager 后端全量测试、前端 `1075` 项测试、生产构建和 lint 全部通过。
 
 ### 变更集 5：集成验收
 
-- 正式请求与账号连通性测试。
-- 官方/非官方客户端回归。
-- 抓包契约对比。
-- 全量测试、构建、重启和日志检查。
+- 状态：已完成（2026-07-20）。
+- Gateway 已在 Vircs 使用临时验收镜像完成重建和真实上游验证；Manager 能力探测、账号创建/删除补偿、兼容开关热编辑、写后回读、Manager 停止后的 Gateway 独立转发和 Manager 重启恢复均已验证。目标 Claude/Codex 账号最终保持 `enabled=true`，Gateway 与 Manager 状态一致。
+- Claude Profile 已按 `sub2apiplus` 1M 契约冻结：普通 Messages 流式/非流式固定六项 beta，Count Tokens 使用六项并追加 `token-counting-2024-11-01`；结构化输出将末尾 `fallback-credit-2026-06-01` 替换为 `structured-outputs-2025-12-15`。
+- Claude 兼容 Messages 同时使用 `x-api-key` 与 Bearer 鉴权，Metadata 使用 JSON 用户标识并移除旧 `cch`；账号测试使用文本数组、`stream: true`、`max_tokens: 512`、System 和完整 27 个 Claude Code 工具，收到 `message_stop` 后立即结束测试，不等待上游关闭连接。
+- Codex 兼容请求已对根 Base URL、已有 `/v1` 和自定义路径前缀进行 Responses 端点归一化；普通 Responses、SSE、Compact 和官方 WebSocket 路由分别回归通过。
+- “配置面板 → Pro 配置”已增加 API Key 官方客户端兼容区域，可筛选账号、查看实时 Profile 和直接热切换兼容状态；统一账号新增向导和编辑弹窗继续保留原有配置入口。
+- Anthropic `anyrouter.top` 两个绑定账号的测试连接均返回 HTTP 200；真实客户端形态的普通 Messages 返回 HTTP 200，并完整产生 `message_start`、内容增量和 `message_stop`。
+- OpenAI `anyrouter.top` 与 `free.lyclaude.site` 的测试连接均返回 HTTP 200；分别隔离账号后的普通 Responses 均返回 HTTP 200 和 `completed`，用量增量确认请求命中目标账号，临时隔离后账号已恢复原启用状态。
+- 脱敏抓包与 Golden Fixture 对比通过：Claude 普通/流式/工具/Count Tokens、Codex Responses 及 `/v1/responses/compact` 的独立 JSON 契约均已覆盖；原始抓包仍保存在仓库外并保持权限 `0600`。
+- Gateway `go test ./...` 与构建、Manager 后端全量测试、Manager 前端 `1076` 项测试、类型检查、生产构建和 lint 均通过；Vircs 临时验收容器日志、健康状态、配置回读和目标账号状态均通过。
 
 ## 17. 测试与验收矩阵
 

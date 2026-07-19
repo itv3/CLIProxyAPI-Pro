@@ -1,0 +1,276 @@
+{
+  "schema_version": 1,
+  "profile_id": "claude-desktop-2.1.215-v1",
+  "provider": "claude",
+  "status": "active",
+  "client": {
+    "product": "Claude Desktop",
+    "client_version": "2.1.215",
+    "agent_sdk_version": "0.3.215",
+    "platform": "MacOS/arm64"
+  },
+  "evidence": {
+    "primary_level": "capture_verified",
+    "capture_layer": "nginx_to_backend_http1",
+    "pcap_sha256": [
+      "b73d31cad1063d2fba1dead4f6647f5bf42d8449a10ee98286b84673c5824eb3",
+      "6dee74cf4e53540b34ff7d893f1e0532cf57ff8408440930ccea34bc7931d510"
+    ],
+    "sample_counts": {
+      "messages_stream_true": 19,
+      "messages_stream_omitted": 18,
+      "count_tokens": 18,
+      "tool_loop": 1
+    },
+    "limitations": [
+      "TLS、ALPN、客户端直连 HTTP/2 和 Header 顺序未验证",
+      "代理注入 Header 不属于 Profile",
+      "原始请求正文和身份值不进入 Fixture"
+    ]
+  },
+  "transport": {
+    "tls_profile": "",
+    "upstream_modes": [
+      "http_json",
+      "sse"
+    ],
+    "observed_accept_encoding": "gzip, br",
+    "accept_encoding_policy": "existing_transport_managed"
+  },
+  "official_client_detection": {
+    "case_insensitive_match_any": [
+      {
+        "header": "user-agent",
+        "prefix": "claude-cli/"
+      },
+      {
+        "header": "user-agent",
+        "prefix": "claude desktop/"
+      },
+      {
+        "header": "user-agent",
+        "prefix": "claude-desktop/"
+      },
+      {
+        "header": "user-agent",
+        "prefix": "claude_desktop/"
+      },
+      {
+        "header": "user-agent",
+        "prefix": "claude_app/"
+      }
+    ],
+    "purpose": "只决定是否跳过 Profile，不作为鉴权边界"
+  },
+  "headers": {
+    "fixed": {
+      "accept": "application/json",
+      "anthropic-dangerous-direct-browser-access": "true",
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+      "user-agent": "claude-cli/2.1.215 (external, claude-desktop-3p, agent-sdk/0.3.215)",
+      "x-app": "cli",
+      "x-stainless-arch": "arm64",
+      "x-stainless-lang": "js",
+      "x-stainless-os": "MacOS",
+      "x-stainless-package-version": "0.94.0",
+      "x-stainless-runtime": "node",
+      "x-stainless-runtime-version": "v26.3.0"
+    },
+    "messages_only": {
+      "x-stainless-timeout": "900"
+    },
+    "dynamic": {
+      "x-claude-code-session-id": {
+        "format": "uuid",
+        "lifecycle": "logical_session",
+        "relation": "等于 metadata.user_id 中的 session 片段"
+      },
+      "x-stainless-retry-count": {
+        "initial": "0",
+        "retry_policy": "允许真实重试递增"
+      }
+    },
+    "authentication": {
+      "x-api-key": "account_api_key",
+      "authorization_messages": "Bearer account_api_key",
+      "authorization_count_tokens": "absent"
+    },
+    "remove": [
+      "x-client-request-id",
+      "x-stainless-helper-method"
+    ],
+    "protected_case_insensitive": [
+      "accept",
+      "authorization",
+      "anthropic-beta",
+      "anthropic-dangerous-direct-browser-access",
+      "anthropic-version",
+      "content-type",
+      "user-agent",
+      "x-api-key",
+      "x-app",
+      "x-claude-code-session-id",
+      "x-client-request-id",
+      "x-stainless-arch",
+      "x-stainless-helper-method",
+      "x-stainless-lang",
+      "x-stainless-os",
+      "x-stainless-package-version",
+      "x-stainless-retry-count",
+      "x-stainless-runtime",
+      "x-stainless-runtime-version",
+      "x-stainless-timeout"
+    ]
+  },
+  "endpoints": {
+    "messages_stream": {
+      "evidence_level": "capture_verified",
+      "method": "POST",
+      "path": "/v1/messages?beta=true",
+      "response_mode": "sse",
+      "anthropic_beta": {
+        "base_ordered": [
+          "claude-code-20250219",
+          "context-1m-2025-08-07",
+          "interleaved-thinking-2025-05-14",
+          "mid-conversation-system-2026-04-07",
+          "effort-2025-11-24",
+          "fallback-credit-2026-06-01"
+        ],
+        "json_schema_replace_last": "structured-outputs-2025-12-15"
+      },
+      "body": {
+        "set": {
+          "stream": true
+        },
+        "preserve_semantics": [
+          "model",
+          "messages",
+          "max_tokens",
+          "thinking",
+          "output_config",
+          "stop_sequences",
+          "tool_choice",
+          "tools"
+        ],
+        "metadata_user_id": {
+          "required": true,
+          "lifecycle": "logical_session",
+          "must_not_use_api_key_as_seed": true
+        },
+        "system_policy": {
+          "preserve_user_semantics": true,
+          "public_identity_blocks_allowed": [
+            "billing_attribution_with_cc_entrypoint_claude_desktop_3p",
+            "claude_agent_sdk_identity"
+          ],
+          "opaque_product_prompt_allowed": false
+        },
+        "temperature_default": "absent",
+        "plain_auto_tool_choice_policy": "remove_only_when_no_extra_fields"
+      }
+    },
+    "messages_non_stream": {
+      "evidence_level": "capture_verified",
+      "method": "POST",
+      "path": "/v1/messages?beta=true",
+      "response_mode": "json",
+      "anthropic_beta": {
+        "ordered": [
+          "claude-code-20250219",
+          "context-1m-2025-08-07",
+          "interleaved-thinking-2025-05-14",
+          "mid-conversation-system-2026-04-07",
+          "effort-2025-11-24",
+          "fallback-credit-2026-06-01"
+        ],
+        "json_schema_replace_last": "structured-outputs-2025-12-15"
+      },
+      "body": {
+        "stream_policy": "omit",
+        "preserve_semantics": [
+          "model",
+          "messages",
+          "max_tokens",
+          "system",
+          "thinking",
+          "output_config",
+          "stop_sequences",
+          "tool_choice",
+          "tools"
+        ],
+        "metadata_user_id": {
+          "required": true,
+          "lifecycle": "logical_session"
+        }
+      }
+    },
+    "count_tokens": {
+      "evidence_level": "capture_verified",
+      "method": "POST",
+      "path": "/v1/messages/count_tokens?beta=true",
+      "response_mode": "json",
+      "anthropic_beta": {
+      "ordered": [
+        "claude-code-20250219",
+        "context-1m-2025-08-07",
+        "interleaved-thinking-2025-05-14",
+        "mid-conversation-system-2026-04-07",
+        "effort-2025-11-24",
+        "fallback-credit-2026-06-01",
+        "token-counting-2024-11-01"
+      ]
+      },
+      "body": {
+        "remove": [
+          "temperature",
+          "top_p",
+          "top_k",
+          "stream",
+          "stop_sequences",
+          "stop"
+        ],
+        "do_not_inject": [
+          "metadata",
+          "output_config",
+          "stream",
+          "thinking"
+        ],
+        "tool_name_mapping": "request_scoped_names_only"
+      },
+      "header_overrides": {
+        "x-stainless-timeout": "absent"
+      }
+    }
+  },
+  "tool_normalization": {
+    "evidence_level": "capture_verified_and_reference_derived",
+    "inject_full_baseline": false,
+    "preserve_unknown_tools": true,
+    "known_case_normalization": {
+      "bash": "Bash",
+      "edit": "Edit",
+      "notebookedit": "NotebookEdit",
+      "read": "Read",
+      "skill": "Skill",
+      "webfetch": "WebFetch",
+      "websearch": "WebSearch",
+      "write": "Write"
+    },
+    "reverse_map_lifecycle": "request",
+    "structured_response_fields": [
+      "content[*].name when type=tool_use",
+      "content[*].tool_name when type=tool_reference",
+      "SSE content_block_start.content_block.name when type=tool_use"
+    ],
+    "rewrite_plain_text": false
+  },
+  "excluded": [
+    "完整官方工具基线注入",
+    "隐藏 Prompt 或产品 Memory",
+    "账号状态",
+    "非空 TLS Profile",
+    "代理注入 Header"
+  ]
+}
