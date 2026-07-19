@@ -29,7 +29,7 @@ services:
       - ./gateway/plugins:/CLIProxyAPI/plugins
 
   cpa-manager-plus:
-    image: cliproxyapi-pro/cpa-manager-plus:pro-section-last-20260718224934
+    image: cliproxyapi-pro/cpa-manager-plus:auth-file-transfer-20260719084629
     pull_policy: never
     container_name: cpa-manager-plus
     restart: unless-stopped
