@@ -142,6 +142,15 @@ Management PATCH 使用整个兼容结构的指针：
 - Attributes 中不存在兼容键时视为关闭。
 - 不按 API Key/BaseURL 回退扫描配置项，避免重复配置命中歧义。
 
+### 6.1 Profile 退役与升级预检
+
+- 已发布 Profile 不得在同一个版本中直接移除或标记为废弃；必须先经历至少一个兼容迁移版本，或经过事先明确公布的迁移窗口。
+- 迁移期内旧 Profile ID 仍保持可执行，但不再作为当前默认版本；Gateway 在启动和配置重载日志中输出脱敏迁移告警，至少包含账号定位信息、Provider、旧 Profile ID、推荐的新 Profile ID 和计划退役版本或日期，不得包含凭据。
+- Gateway 启动和配置重载必须预检全部已启用账号引用的 Profile，不得等到真实请求到达后才发现未知、Provider 不匹配或已废弃 Profile。
+- 配置热重载发现非法 Profile 时拒绝本次重载并保留上一份有效运行态；冷启动发现非法 Profile 时拒绝加载配置并返回明确的脱敏配置错误。
+- 迁移窗口结束后，已废弃 Profile 继续按照 fail-closed 规则拒绝；不得静默回退、自动替换 Profile ID 或执行普通 API Key 链路。
+- 运行时 fail-closed 只作为手工 Auth、损坏 Attributes、插件伪造状态或其他绕过配置预检场景的最后防线，不能替代启动和重载预检。
+
 ## 7. xAI 三层隔离
 
 由于 `XAIKey = CodexKey`，首版保留类型别名以减少改动，并增加三层隔离：
@@ -384,6 +393,8 @@ Count Tokens 使用独立构造规则：
 - xAI 三层隔离。
 - 三态决策、官方客户端识别和受保护 Header 最终器。
 - Management GET/PUT/PATCH 和热更新测试。
+- 热更新必须覆盖：只修改兼容开关或 Profile、保持 API Key/BaseURL 不变时，Auth ID 保持稳定，watcher 必须派发 `Modify`，AuthManager 必须替换为包含新 JSON Attributes 的 Auth。
+- 上述测试必须在不重启 Gateway 的条件下验证，且后续一次 Profile 决策读取到新值；本变更集暂不以上游请求形态变化作为判定条件。
 - 暂不改变实际请求形态。
 
 ### 变更集 2：Anthropic
@@ -393,6 +404,7 @@ Count Tokens 使用独立构造规则：
 - Beta、System、Metadata、Session 和缓存。
 - 实际工具映射及 JSON/SSE 响应回写。
 - 正式请求与连通性测试抓包对比。
+- 仅修改兼容开关、不重启 Gateway，验证下一次 Claude 上游请求立即切换为对应的 Profile 或普通链路形态。
 
 ### 变更集 3：Codex
 
@@ -401,6 +413,7 @@ Count Tokens 使用独立构造规则：
 - 缓存和 Client Metadata。
 - 绕过冲突的 `cacheHelper`、`identity-confuse`。
 - HTTP/SSE 和官方 WebSocket 路由回归。
+- 仅修改兼容开关、不重启 Gateway，验证下一次 Codex 上游请求立即切换为对应的 Profile 或普通链路形态。
 
 ### 变更集 4：Manager
 
@@ -421,6 +434,8 @@ Count Tokens 使用独立构造规则：
 必须覆盖：
 
 - 配置缺失、关闭、开启、未知 Profile 和损坏 Attributes。
+- Profile 迁移期旧 ID 可执行并产生启动/重载告警，以及迁移期结束后已废弃 ID 在启动、热重载和运行时的 fail-closed 行为。
+- 仅修改兼容开关或 Profile 且 Auth ID 不变时，watcher 派发 `Modify`、AuthManager 读取新 Attributes，并在 Anthropic/Codex 变更集完成后验证不重启时下一请求形态立即改变。
 - API Key、OAuth、xAI。
 - 官方客户端、非官方客户端、账号连通性测试。
 - 模型映射后的最终上游模型。
