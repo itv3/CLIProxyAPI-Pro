@@ -457,7 +457,7 @@ Count Tokens 使用独立构造规则：
 - Anthropic `anyrouter.top` 两个绑定账号的测试连接均返回 HTTP 200；真实客户端形态的普通 Messages 返回 HTTP 200，并完整产生 `message_start`、内容增量和 `message_stop`。
 - OpenAI `anyrouter.top` 与 `free.lyclaude.site` 的测试连接均返回 HTTP 200；分别隔离账号后的普通 Responses 均返回 HTTP 200 和 `completed`，用量增量确认请求命中目标账号，临时隔离后账号已恢复原启用状态。
 - 脱敏抓包与 Golden Fixture 对比通过：Claude 普通/流式/工具/Count Tokens、Codex Responses 及 `/v1/responses/compact` 的独立 JSON 契约均已覆盖；原始抓包仍保存在仓库外并保持权限 `0600`。
-- Gateway `go test ./...` 与构建、Manager 后端全量测试、Manager 前端 `1076` 项测试、类型检查、生产构建和 lint 均通过；Vircs 临时验收容器日志、健康状态、配置回读和目标账号状态均通过。
+- Gateway `go test ./...` 与构建、Manager 后端全量测试、Manager 前端 `1077` 项测试、类型检查、生产构建和 lint 均通过；Vircs 临时验收容器日志、健康状态、配置回读和目标账号状态均通过。
 
 ## 17. 测试与验收矩阵
 
