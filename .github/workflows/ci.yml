@@ -76,7 +76,7 @@ jobs:
       - name: 构建管理面板
         run: npm --workspace apps/web run build:bundle
         env:
-          VERSION: ci
+          VERSION: v1.11.3-1
 
       - name: 检查演示环境隔离
         run: npm run check:demo-isolation
@@ -161,9 +161,11 @@ jobs:
           - component: gateway
             context: components/cliproxyapi
             file: components/cliproxyapi/Dockerfile
+            version: v7.2.92-1
           - component: manager
             context: components/cpa-manager-plus
             file: components/cpa-manager-plus/Dockerfile.manager-server
+            version: v1.11.3-1
     steps:
       - name: 检出代码和子模块
         uses: actions/checkout@v4
@@ -181,4 +183,4 @@ jobs:
           platforms: linux/amd64
           push: false
           build-args: |
-            VERSION=ci
+            VERSION=${{ matrix.version }}
