@@ -161,11 +161,11 @@ jobs:
           - component: gateway
             context: components/cliproxyapi
             file: components/cliproxyapi/Dockerfile
-            version: v7.2.92-1
+            version: v7.2.93-1
           - component: manager
             context: components/cpa-manager-plus
             file: components/cpa-manager-plus/Dockerfile.manager-server
-            version: v1.11.3-1
+            version: v1.11.4-1
     steps:
       - name: 检出代码和子模块
         uses: actions/checkout@v4
