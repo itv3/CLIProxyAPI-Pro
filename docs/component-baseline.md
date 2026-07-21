@@ -4,12 +4,12 @@
 
 ## 当前基线
 
-基线日期：2026-07-16
+基线日期：2026-07-21
 
 | 组件 | fork | 官方上游 | 锁定提交 | 版本描述 |
 |---|---|---|---|---|
-| CLIProxyAPI | `https://github.com/itv3/CLIProxyAPI.git` | `https://github.com/router-for-me/CLIProxyAPI.git` | `09da52ad509e2c18e7b9540db3b98c2214c280aa` | `v7.2.80` |
-| CPA-Manager-Plus | `https://github.com/itv3/CPA-Manager-Plus.git` | `https://github.com/seakee/CPA-Manager-Plus.git` | `8a072451db07702cc499b8130c4da1f9955cf7eb` | `v1.11.2-19-g8a072451` |
+| CLIProxyAPI | `https://github.com/itv3/CLIProxyAPI.git` | `https://github.com/router-for-me/CLIProxyAPI.git` | `44d1850d27d9a102fe6b96d4d9e1a7c0aff1fda9` | `v7.2.93-1`（上游基线 `v7.2.93`） |
+| CPA-Manager-Plus | `https://github.com/itv3/CPA-Manager-Plus.git` | `https://github.com/seakee/CPA-Manager-Plus.git` | `04aa716e313aa12a131a1be9382f512a925f95b0` | `v1.11.4-1`（上游基线 `v1.11.4`） |
 
 ## 远端约定
 
